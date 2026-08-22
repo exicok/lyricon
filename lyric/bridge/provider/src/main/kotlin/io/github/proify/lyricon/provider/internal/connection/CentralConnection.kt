@@ -17,9 +17,10 @@ import io.github.proify.lyricon.provider.IRemoteService
 import io.github.proify.lyricon.provider.LyriconProvider
 import io.github.proify.lyricon.provider.ProviderConstants
 import io.github.proify.lyricon.provider.RemotePlayer
-import io.github.proify.lyricon.provider.isConnected
 import io.github.proify.lyricon.provider.internal.player.AidlRemotePlayer
 import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer
+import io.github.proify.lyricon.provider.isConnected
+import io.github.proify.lyricon.provider.isDisconnected
 import io.github.proify.lyricon.provider.service.RemoteService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,8 +30,8 @@ import java.util.concurrent.CopyOnWriteArraySet
 /**
  * 提供端与中心服务的连接端点。
  *
- * 负责维护中心服务返回的 [IRemoteService]、监听 Binder 死亡、分发连接状态，
- * 并向外提供缓存后的 [RemotePlayer]。
+ * 连接状态由 [ConnectionStateMachine] 统一决策；该类负责把状态转移翻译成实际的
+ * Binder 操作（绑定、死亡监听、拆除），并向外提供带重放缓存的 [RemotePlayer]。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class CentralConnection(
@@ -39,30 +40,49 @@ internal class CentralConnection(
     private val playerChannel = AidlRemotePlayer()
     private val playerCache = ResyncingPlayer(playerChannel)
     private val listeners = CopyOnWriteArraySet<ConnectionListener>()
+    private val machine = ConnectionStateMachine()
     private val callbackScope = CoroutineScope(Dispatchers.Main.immediate)
-    private val deathRecipient = IBinder.DeathRecipient { disconnect(DisconnectReason.REMOTE) }
+    private val transitionLock = Any()
 
     @Volatile
     private var remoteService: IRemoteService? = null
 
-    private var hasConnectedHistory = false
+    private val deathRecipient = IBinder.DeathRecipient {
+        transition(ConnectionTrigger.SERVICE_LOST)
+    }
 
     override val player: RemotePlayer = playerCache
-
-    @Volatile
-    override var connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED
-        set(value) {
-            field = value
-            playerChannel.isSendingEnabled = value.isConnected()
-        }
 
     override val isActive: Boolean
         get() = remoteService?.asBinder()?.isBinderAlive == true
 
+    override val connectionStatus: ConnectionStatus
+        get() = machine.status
+
+    /** 是否可以发起注册：当前未连接且未在连接中。 */
+    fun canRegister(): Boolean = machine.status.isDisconnected()
+
+    /** 标记为正在连接（注册广播发出前调用）。 */
+    fun beginRegistration() {
+        transition(ConnectionTrigger.REGISTER)
+    }
+
+    /** 注册等待超时。 */
+    fun onRegistrationTimeout() {
+        transition(ConnectionTrigger.REGISTRATION_TIMEOUT)
+    }
+
+    /** 用户主动断开。 */
+    fun disconnectByUser() {
+        transition(ConnectionTrigger.USER_DISCONNECT)
+    }
+
     /** 接收中心服务返回的远端服务 Binder。 */
     override fun onRemoteService(service: IRemoteService?) {
         if (ProviderConstants.DEBUG) Log.d(TAG, "Bind remote service")
-        disconnect(DisconnectReason.REPLACE)
+
+        // 先拆除旧连接（等价于原有 REPLACE 断连）。
+        transition(ConnectionTrigger.PREEMPT)
 
         if (service == null) {
             Log.w(TAG, "Service is null")
@@ -83,42 +103,12 @@ internal class CentralConnection(
 
         remoteService = service
         playerChannel.attachPlayer(service.player)
-        connectionStatus = ConnectionStatus.CONNECTED
-        dispatchConnected()
+        transition(ConnectionTrigger.SERVICE_READY)
     }
 
     /** 将缓存的播放器状态同步到当前远端播放器。 */
     fun syncPlayer() {
         playerCache.sync()
-    }
-
-    /** 遍历当前连接监听器，用于注册超时等外部状态分发。 */
-    inline fun forEachConnectionListener(block: (ConnectionListener) -> Unit) {
-        listeners.forEach(block)
-    }
-
-    /** 按指定原因断开当前远端服务。 */
-    fun disconnect(reason: DisconnectReason) {
-        connectionStatus = when (reason) {
-            DisconnectReason.USER -> ConnectionStatus.DISCONNECTED_USER
-            DisconnectReason.REMOTE -> ConnectionStatus.DISCONNECTED_REMOTE
-            DisconnectReason.REPLACE -> ConnectionStatus.DISCONNECTED
-        }
-
-        if (ProviderConstants.DEBUG) Log.d(TAG, "Disconnect: $reason")
-        playerChannel.attachPlayer(null)
-
-        val service = remoteService ?: return
-        remoteService = null
-
-        runCatching { service.asBinder().unlinkToDeath(deathRecipient, 0) }
-            .onFailure { Log.w(TAG, "Failed to unlink death recipient", it) }
-        runCatching { service.disconnect() }
-            .onFailure { Log.e(TAG, "Failed to disconnect remote service", it) }
-
-        callbackScope.launch {
-            listeners.forEach { it.onDisconnected(provider) }
-        }
     }
 
     override fun addConnectionListener(listener: ConnectionListener): Boolean =
@@ -127,25 +117,63 @@ internal class CentralConnection(
     override fun removeConnectionListener(listener: ConnectionListener): Boolean =
         listeners.remove(listener)
 
-    private fun dispatchConnected() {
-        callbackScope.launch {
-            listeners.forEach {
-                if (hasConnectedHistory) it.onReconnected(provider) else it.onConnected(provider)
+    /**
+     * 执行一次状态转移并分发通知。
+     *
+     * 状态与 Binder 操作在同一把锁内完成，保证转移的原子性；
+     * 监听器通知在锁外发往主线程，维持原有回调线程模型。
+     */
+    private fun transition(trigger: ConnectionTrigger): ConnectionTransition {
+        val result = synchronized(transitionLock) {
+            val transition = machine.on(trigger, remoteService != null)
+            playerChannel.isSendingEnabled = transition.status.isConnected()
+            if (tearsDown(trigger)) {
+                playerChannel.attachPlayer(null)
+                detachService()
             }
-            hasConnectedHistory = true
+            transition
         }
+        dispatchNotice(result.notice)
+        return result
     }
 
-    /** 内部断开原因，用于映射为公开连接状态。 */
-    enum class DisconnectReason {
-        /** 用户主动断开。 */
-        USER,
+    /** 该触发是否要求拆除已有远端服务。 */
+    private fun tearsDown(trigger: ConnectionTrigger): Boolean = when (trigger) {
+        ConnectionTrigger.PREEMPT,
+        ConnectionTrigger.SERVICE_LOST,
+        ConnectionTrigger.USER_DISCONNECT,
+        -> true
 
-        /** 远端 Binder 死亡或服务主动断开。 */
-        REMOTE,
+        ConnectionTrigger.REGISTER,
+        ConnectionTrigger.REGISTRATION_TIMEOUT,
+        ConnectionTrigger.SERVICE_READY,
+        -> false
+    }
 
-        /** 新服务绑定前替换旧连接。 */
-        REPLACE
+    /** 解除死亡监听并断开远端服务（幂等）。 */
+    private fun detachService() {
+        val old = remoteService ?: return
+        remoteService = null
+
+        runCatching { old.asBinder().unlinkToDeath(deathRecipient, 0) }
+            .onFailure { Log.w(TAG, "Failed to unlink death recipient", it) }
+        runCatching { old.disconnect() }
+            .onFailure { Log.e(TAG, "Failed to disconnect remote service", it) }
+    }
+
+    private fun dispatchNotice(notice: ConnectionNotice?) {
+        if (notice == null) return
+
+        callbackScope.launch {
+            listeners.forEach { listener ->
+                when (notice) {
+                    ConnectionNotice.CONNECTED -> listener.onConnected(provider)
+                    ConnectionNotice.RECONNECTED -> listener.onReconnected(provider)
+                    ConnectionNotice.DISCONNECTED -> listener.onDisconnected(provider)
+                    ConnectionNotice.CONNECT_TIMEOUT -> listener.onConnectTimeout(provider)
+                }
+            }
+        }
     }
 
     private companion object {
