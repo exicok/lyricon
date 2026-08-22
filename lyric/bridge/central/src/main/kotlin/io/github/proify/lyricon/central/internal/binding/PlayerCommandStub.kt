@@ -146,7 +146,7 @@ internal class PlayerCommandStub(
             return
         }
 
-        Log.d(TAG, "setPlaybackState2: " + state)
+        Log.d(TAG, "setPlaybackState2: $state")
 
         if (state.state == PlaybackState.STATE_BUFFERING) return
 

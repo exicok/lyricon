@@ -28,6 +28,7 @@ import java.nio.ByteBuffer
  *
  * @property subscriberInfo 订阅端身份，用于共享内存命名。
  */
+@OptIn(ExperimentalSerializationApi::class)
 internal class SubscriberSession(
     subscriberInfo: SubscriberInfo
 ) : ActivePlayerListener {
@@ -103,10 +104,10 @@ internal class SubscriberSession(
     private fun initializePositionMemory(info: SubscriberInfo) {
         try {
             val hashHex = Integer.toHexString(
-                (info.packageName + "/" + info.processName).hashCode()
+                "${info.packageName}/${info.processName}".hashCode()
             )
             positionMemory =
-                SharedMemory.create("lyricon_subscriber_pos_" + hashHex, Long.SIZE_BYTES).apply {
+                SharedMemory.create("lyricon_subscriber_pos_$hashHex", Long.SIZE_BYTES).apply {
                     setProtect(OsConstants.PROT_READ or OsConstants.PROT_WRITE)
                     positionBuffer = mapReadWrite()
                 }

@@ -20,7 +20,7 @@ internal object CentralReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context?, intent: Intent?) {
         val action = intent?.action ?: return
-        Log.d(TAG, "Received intent: " + action)
+        Log.d(TAG, "Received intent: $action")
 
         CentralRuntime.registration.handle(intent)
     }

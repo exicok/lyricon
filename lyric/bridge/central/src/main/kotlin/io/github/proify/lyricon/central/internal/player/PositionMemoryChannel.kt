@@ -52,11 +52,9 @@ internal class PositionMemoryChannel(
     private fun initialize() {
         try {
             val hashHex = Integer.toHexString(
-                (providerInfo.providerPackageName + "/" +
-                        providerInfo.playerPackageName + "/" +
-                        providerInfo.processName).hashCode()
+                "${providerInfo.providerPackageName}/${providerInfo.playerPackageName}/${providerInfo.processName}".hashCode()
             )
-            sharedMemory = SharedMemory.create("lyricon_pos_" + hashHex, Long.SIZE_BYTES).apply {
+            sharedMemory = SharedMemory.create("lyricon_pos_$hashHex", Long.SIZE_BYTES).apply {
                 setProtect(OsConstants.PROT_READ or OsConstants.PROT_WRITE)
                 readBuffer = mapReadOnly()
             }

@@ -53,12 +53,12 @@ internal class RegistrationDispatcher(
                 ?.let { json.decodeFromString(ProviderInfo.serializer(), it) }
 
             if (info?.providerPackageName.isNullOrBlank() || info.playerPackageName.isBlank()) {
-                Log.e(TAG, "Provider info is invalid: " + info)
+                Log.e(TAG, "Provider info is invalid: $info")
                 return
             }
 
             connection = providers.getOrCreate(binder, info)
-            Log.d(TAG, "Provider registered: " + info)
+            Log.d(TAG, "Provider registered: $info")
             binder.onRegistrationCallback(connection.service)
         } catch (e: Exception) {
             Log.e(TAG, "Provider registration failed", e)
@@ -77,12 +77,12 @@ internal class RegistrationDispatcher(
                 ?.let { json.decodeFromString(SubscriberInfo.serializer(), it) }
 
             if (info?.packageName.isNullOrBlank() || info.processName.isBlank()) {
-                Log.e(TAG, "Subscriber info is invalid: " + info)
+                Log.e(TAG, "Subscriber info is invalid: $info")
                 return
             }
 
             connection = subscribers.getOrCreate(binder, info)
-            Log.d(TAG, "Subscriber registered: " + info)
+            Log.d(TAG, "Subscriber registered: $info")
             binder.onRegistrationCallback(connection.service)
         } catch (e: Exception) {
             Log.e(TAG, "Subscriber registration failed", e)
@@ -99,7 +99,7 @@ internal class RegistrationDispatcher(
             IProviderBinder::class -> IProviderBinder.Stub.asInterface(binder) as? T
             ISubscriberBinder::class -> ISubscriberBinder.Stub.asInterface(binder) as? T
             else -> {
-                Log.e(TAG, "Unknown binder type: " + T::class.java.simpleName)
+                Log.e(TAG, "Unknown binder type: ${T::class.java.simpleName}")
                 null
             }
         }

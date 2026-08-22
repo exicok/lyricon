@@ -80,14 +80,14 @@ internal class ActivePlayerHub : PlayerListener {
     }
 
     override fun onSongChanged(session: PlayerSession, song: Song?) {
-        if (debug) Log.d(TAG, "onSongChanged: " + song)
+        if (debug) Log.d(TAG, "onSongChanged: $song")
         dispatchIfActive(session, allowDuplicateIfSwitching = false) {
             it.onSongChanged(song)
         }
     }
 
     override fun onPlaybackStateChanged(session: PlayerSession, isPlaying: Boolean) {
-        if (debug) Log.d(TAG, "onPlaybackStateChanged: " + isPlaying)
+        if (debug) Log.d(TAG, "onPlaybackStateChanged: $isPlaying")
         dispatchIfActive(session) {
             it.onPlaybackStateChanged(isPlaying)
         }
@@ -182,7 +182,7 @@ internal class ActivePlayerHub : PlayerListener {
             try {
                 notifier(listener)
             } catch (e: Exception) {
-                if (debug) Log.e(TAG, "Dispatch failed for listener: " + listener.javaClass.name, e)
+                if (debug) Log.e(TAG, "Dispatch failed for listener: ${listener.javaClass.name}", e)
             }
         }
     }
