@@ -8,8 +8,8 @@ package io.github.proify.lyricon.central.internal.binding
 
 import android.media.session.PlaybackState
 import android.os.SharedMemory
-import android.os.SystemClock
 import android.util.Log
+import io.github.proify.lyricon.central.internal.player.PlaybackStateTracker
 import io.github.proify.lyricon.central.internal.player.PlayerSession
 import io.github.proify.lyricon.central.internal.player.PlayerListener
 import io.github.proify.lyricon.central.internal.player.PositionMemoryChannel
@@ -32,6 +32,13 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.decodeFromStream
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * 提供端播放命令的 AIDL 桩。
+ *
+ * 负责把 [IRemotePlayer] 命令写入 [PlayerSession] 并转发事件；
+ * 位置计算由 [PlaybackStateTracker] 负责，本类只做 PlaybackState 与
+ * 原始参数的适配。
+ */
 internal class PlayerCommandStub(
     info: ProviderInfo,
     private val playerEvents: PlayerListener
@@ -40,22 +47,20 @@ internal class PlayerCommandStub(
     private val session = PlayerSession(info)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val closed = AtomicBoolean(false)
-    private val isState2Enabled = AtomicBoolean(false)
     private val closeMutex = Mutex()
+    private val positionTracker = PlaybackStateTracker()
     private val positionMemory = PositionMemoryChannel(info)
     private val positionTicker = PositionTicker(
         scope = scope,
-        readPosition = ::computeCurrentPosition,
+        readPosition = positionTracker::computePosition,
         onPosition = ::publishPosition
     )
 
     @Volatile
     private var positionUpdateInterval: Long = ProviderConstants.DEFAULT_POSITION_UPDATE_INTERVAL
 
-    @Volatile
-    private var lastPlaybackState: PlaybackState? = null
-
     init {
+        positionTracker.manualPositionReader = positionMemory::readPosition
         ScreenStateMonitor.addListener(this)
     }
 
@@ -120,8 +125,7 @@ internal class PlayerCommandStub(
     override fun setPlaybackState(isPlaying: Boolean) {
         if (closed.get()) return
 
-        isState2Enabled.set(false)
-        lastPlaybackState = null
+        positionTracker.useManualMode()
 
         if (session.isPlaying != isPlaying) {
             session.isPlaying = isPlaying
@@ -135,8 +139,7 @@ internal class PlayerCommandStub(
         if (closed.get()) return
 
         if (state == null) {
-            if (isState2Enabled.compareAndSet(true, false)) {
-                lastPlaybackState = null
+            if (positionTracker.stopDriving()) {
                 stopPositionUpdate()
             }
             return
@@ -147,8 +150,12 @@ internal class PlayerCommandStub(
         if (state.state == PlaybackState.STATE_BUFFERING) return
 
         val isPlaying = state.state == PlaybackState.STATE_PLAYING
-        isState2Enabled.set(true)
-        lastPlaybackState = state
+        positionTracker.usePlaybackState(
+            playing = isPlaying,
+            position = state.position,
+            lastUpdateTime = state.lastPositionUpdateTime,
+            playbackSpeed = state.playbackSpeed
+        )
 
         if (session.isPlaying != isPlaying) {
             session.isPlaying = isPlaying
@@ -188,26 +195,6 @@ internal class PlayerCommandStub(
     }
 
     override fun getPositionMemory(): SharedMemory? = positionMemory.sharedMemory
-
-    private fun computeCurrentPosition(): Long {
-        if (!isState2Enabled.get()) return positionMemory.readPosition()
-
-        val state = lastPlaybackState ?: return 0L
-        val basePosition = state.position.coerceAtLeast(0L)
-        if (state.state != PlaybackState.STATE_PLAYING) return basePosition
-
-        val lastUpdate = state.lastPositionUpdateTime
-        if (lastUpdate <= 0L) return basePosition
-
-        val delta = (SystemClock.elapsedRealtime() - lastUpdate).coerceAtLeast(0L)
-        val advanced = if (state.playbackSpeed == 1.0f) {
-            basePosition + delta
-        } else {
-            basePosition + (delta * state.playbackSpeed).toLong()
-        }
-
-        return advanced.coerceAtLeast(0L)
-    }
 
     private fun startPositionUpdate() {
         if (closed.get()) return
