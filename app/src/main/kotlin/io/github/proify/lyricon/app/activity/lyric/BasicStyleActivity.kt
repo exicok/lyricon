@@ -41,8 +41,8 @@ import io.github.proify.lyricon.app.util.Utils
 import io.github.proify.lyricon.app.util.editCommit
 import io.github.proify.lyricon.lyric.style.BasicStyle
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.SmallTitle
-import top.yukonga.miuix.kmp.basic.SpinnerEntry
 import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.OverlaySpinnerPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
@@ -112,8 +112,8 @@ class BasicLyricStyleActivity : AbstractLyricActivity() {
                     )
 
                     val options = listOf(
-                        SpinnerEntry(title = stringResource(R.string.item_base_insertion_before)),
-                        SpinnerEntry(title = stringResource(R.string.item_base_insertion_after)),
+                        DropdownItem(title = stringResource(R.string.item_base_insertion_before)),
+                        DropdownItem(title = stringResource(R.string.item_base_insertion_after)),
                     )
 
                     optionKeys.forEachIndexed { index, key ->
@@ -436,9 +436,9 @@ class BasicLyricStyleActivity : AbstractLyricActivity() {
         }
 
         val entries = listOf(
-            SpinnerEntry(title = stringResource(R.string.item_base_chinese_conv_off)),
-            SpinnerEntry(title = stringResource(R.string.item_base_chinese_conv_simplified)),
-            SpinnerEntry(title = stringResource(R.string.item_base_chinese_conv_traditional)),
+            DropdownItem(title = stringResource(R.string.item_base_chinese_conv_off)),
+            DropdownItem(title = stringResource(R.string.item_base_chinese_conv_simplified)),
+            DropdownItem(title = stringResource(R.string.item_base_chinese_conv_traditional)),
         )
 
         OverlaySpinnerPreference(

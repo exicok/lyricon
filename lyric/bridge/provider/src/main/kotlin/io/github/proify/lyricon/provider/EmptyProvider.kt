@@ -4,16 +4,10 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.provider.internal
+package io.github.proify.lyricon.provider
 
 import android.media.session.PlaybackState
 import io.github.proify.lyricon.lyric.model.Song
-import io.github.proify.lyricon.provider.ConnectionListener
-import io.github.proify.lyricon.provider.ConnectionStatus
-import io.github.proify.lyricon.provider.LyriconProvider
-import io.github.proify.lyricon.provider.ProviderInfo
-import io.github.proify.lyricon.provider.ProviderService
-import io.github.proify.lyricon.provider.RemotePlayer
 import io.github.proify.lyricon.provider.service.RemoteService
 
 /** 不支持当前运行环境时返回的提供端空实现。 */

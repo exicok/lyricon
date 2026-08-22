@@ -10,7 +10,6 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
 import android.os.Build
-import io.github.proify.lyricon.provider.internal.EmptyProvider
 import io.github.proify.lyricon.provider.internal.LyriconProviderImpl
 import io.github.proify.lyricon.provider.internal.registration.CentralBootReceiver
 
