@@ -24,7 +24,7 @@ class ResyncingPlayerTest {
 
         player.setPositionUpdateInterval(40)
         player.setDisplayTranslation(true)
-        player.setDisplayRomaji(true)
+        player.setDisplayRoma(true)
         player.setSong(Song(name = "demo"))
         player.setPlaybackState(true)
         player.setPosition(5000)
@@ -36,7 +36,7 @@ class ResyncingPlayerTest {
             listOf(
                 "setPositionUpdateInterval:40",
                 "setDisplayTranslation:true",
-                "setDisplayRomaji:true",
+                "setDisplayRoma:true",
                 "setSong:demo",
                 "setPlaybackState(boolean):true",
                 "seekTo:5000",
@@ -221,8 +221,8 @@ class ResyncingPlayerTest {
             return true
         }
 
-        override fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean {
-            calls += "setDisplayRomaji:" + isDisplayRomaji
+        override fun setDisplayRoma(isDisplayRoma: Boolean): Boolean {
+            calls += "setDisplayRoma:" + isDisplayRoma
             return true
         }
 

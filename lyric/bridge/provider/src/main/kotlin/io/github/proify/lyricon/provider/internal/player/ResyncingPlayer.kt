@@ -94,9 +94,9 @@ internal class ResyncingPlayer(
         return channel.setDisplayTranslation(isDisplayTranslation)
     }
 
-    override fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean {
-        commit { it.copy(displayRomaji = isDisplayRomaji) }
-        return channel.setDisplayRomaji(isDisplayRomaji)
+    override fun setDisplayRoma(isDisplayRoma: Boolean): Boolean {
+        commit { it.copy(displayRoma = isDisplayRoma) }
+        return channel.setDisplayRoma(isDisplayRoma)
     }
 
     override fun setPlaybackState(state: PlaybackState?): Boolean {

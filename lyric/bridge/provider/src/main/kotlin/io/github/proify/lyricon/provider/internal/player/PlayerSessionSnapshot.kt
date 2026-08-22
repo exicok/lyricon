@@ -71,14 +71,14 @@ internal sealed interface PlaybackSync {
  * @property playback 最近的播放状态同步模式。
  * @property positionUpdateInterval 位置更新间隔，-1 表示未设置。
  * @property displayTranslation 翻译显示配置，null 表示未设置。
- * @property displayRomaji 罗马音显示配置，null 表示未设置。
+ * @property displayRoma 罗马音显示配置，null 表示未设置。
  */
 internal data class PlayerSessionSnapshot(
     val lyric: LyricContent = LyricContent.Empty,
     val playback: PlaybackSync = PlaybackSync.Manual(playing = false, position = 0L),
     val positionUpdateInterval: Int = -1,
     val displayTranslation: Boolean? = null,
-    val displayRomaji: Boolean? = null,
+    val displayRoma: Boolean? = null,
 ) {
 
     /** 将快照内容按原有同步顺序回放到 [target]。 */
@@ -87,7 +87,7 @@ internal data class PlayerSessionSnapshot(
             target.setPositionUpdateInterval(positionUpdateInterval)
         }
         displayTranslation?.let { target.setDisplayTranslation(it) }
-        displayRomaji?.let { target.setDisplayRomaji(it) }
+        displayRoma?.let { target.setDisplayRoma(it) }
 
         when (val content = lyric) {
             is LyricContent.SongPayload -> target.setSong(content.song)

@@ -101,8 +101,8 @@ internal class AidlRemotePlayer : RemotePlayer {
         setDisplayTranslation(isDisplayTranslation)
     }
 
-    override fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean = send {
-        setDisplayRoma(isDisplayRomaji)
+    override fun setDisplayRoma(isDisplayRoma: Boolean): Boolean = send {
+        setDisplayRoma(isDisplayRoma)
     }
 
     override fun setPlaybackState(state: PlaybackState?): Boolean = send {
