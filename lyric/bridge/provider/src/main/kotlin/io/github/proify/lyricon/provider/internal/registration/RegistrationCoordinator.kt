@@ -8,7 +8,9 @@ package io.github.proify.lyricon.provider.internal.registration
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import androidx.annotation.RequiresApi
 import io.github.proify.lyricon.provider.ProviderConstants
 import io.github.proify.lyricon.provider.ProviderConstants.ACTION_REGISTER_PROVIDER
 import io.github.proify.lyricon.provider.ProviderConstants.EXTRA_BINDER
@@ -37,6 +39,7 @@ import kotlinx.coroutines.launch
  * @property connection 连接端点。
  * @property scope 超时与重试协程的宿主作用域。
  */
+@RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class RegistrationCoordinator(
     private val context: Context,
     private val centralPackageName: String,
