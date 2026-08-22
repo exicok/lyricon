@@ -20,23 +20,33 @@ import kotlinx.serialization.json.encodeToStream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 
+/**
+ * 单个订阅端的活跃播放器会话。
+ *
+ * 作为 [ActivePlayerListener] 注册到活跃播放器中枢，把状态事件转换为
+ * 订阅端 AIDL 回调；位置经共享内存写入，歌曲/提供端信息序列化后传输。
+ *
+ * @property subscriberInfo 订阅端身份，用于共享内存命名。
+ */
 internal class SubscriberSession(
     subscriberInfo: SubscriberInfo
 ) : ActivePlayerListener {
 
+    /** 订阅端的活跃播放器监听器。 */
     @Volatile
     var remoteListener: IActivePlayerListener? = null
 
+    /** 位置共享内存（通过 AIDL 返回给订阅端）。 */
     var positionMemory: SharedMemory? = null
         private set
 
+    /** [positionMemory] 的读写映射缓冲。 */
     private var positionBuffer: ByteBuffer? = null
 
     init {
         initializePositionMemory(subscriberInfo)
     }
 
-    @OptIn(ExperimentalSerializationApi::class)
     override fun onActiveProviderChanged(providerInfo: ProviderInfo?) {
         if (providerInfo == null) {
             remoteListener?.onActiveProviderChanged(null)
@@ -81,6 +91,7 @@ internal class SubscriberSession(
         remoteListener?.onDisplayRomaChanged(isDisplayRoma)
     }
 
+    /** 释放共享内存并清空监听引用。 */
     fun close() {
         positionBuffer = null
         positionMemory?.close()
@@ -88,6 +99,7 @@ internal class SubscriberSession(
         remoteListener = null
     }
 
+    /** 按订阅端身份创建位置共享内存并映射。 */
     private fun initializePositionMemory(info: SubscriberInfo) {
         try {
             val hashHex = Integer.toHexString(

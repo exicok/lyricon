@@ -14,6 +14,13 @@ import io.github.proify.lyricon.subscriber.ISubscriberBinder
 import io.github.proify.lyricon.subscriber.SubscriberInfo
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * 订阅端连接：与一个订阅端进程的注册 Binder 生命周期。
+ *
+ * 持有其远端服务桩；Binder 死亡时经 [BinderDeathTracker] 身份校验后拆除。
+ *
+ * @property subscriberInfo 订阅端身份。
+ */
 internal class SubscriberConnection(
     binder: ISubscriberBinder,
     val subscriberInfo: SubscriberInfo,

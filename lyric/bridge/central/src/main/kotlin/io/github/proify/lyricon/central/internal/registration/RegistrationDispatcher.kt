@@ -19,11 +19,22 @@ import io.github.proify.lyricon.provider.ProviderInfo
 import io.github.proify.lyricon.subscriber.ISubscriberBinder
 import io.github.proify.lyricon.subscriber.SubscriberInfo
 
+/**
+ * 注册请求分发器：按广播动作把提供端/订阅端注册请求交给对应目录处理。
+ *
+ * @property providers 提供端目录。
+ * @property subscribers 订阅端目录。
+ */
 internal class RegistrationDispatcher(
     private val providers: ProviderDirectory,
     private val subscribers: SubscriberDirectory
 ) {
 
+    /**
+     * 处理一条注册广播。
+     *
+     * @param intent 注册广播。
+     */
     fun handle(intent: Intent) {
         when (intent.action) {
             CentralConstants.ACTION_REGISTER_PROVIDER -> registerProvider(intent)
@@ -31,6 +42,7 @@ internal class RegistrationDispatcher(
         }
     }
 
+    /** 解析并注册提供端；成功后回执远端服务。 */
     private fun registerProvider(intent: Intent) {
         val binder = getBinder<IProviderBinder>(intent) ?: return
         var connection: ProviderConnection? = null
@@ -54,6 +66,7 @@ internal class RegistrationDispatcher(
         }
     }
 
+    /** 解析并注册订阅端；成功后回执远端服务。 */
     private fun registerSubscriber(intent: Intent) {
         val binder = getBinder<ISubscriberBinder>(intent) ?: return
         var connection: SubscriberConnection? = null
@@ -77,6 +90,7 @@ internal class RegistrationDispatcher(
         }
     }
 
+    /** 从广播中解析指定类型的注册 Binder。 */
     private inline fun <reified T> getBinder(intent: Intent): T? = runCatching {
         val binder = intent.getBundleExtra(CentralConstants.EXTRA_BUNDLE)
             ?.getBinder(CentralConstants.EXTRA_BINDER) ?: return null

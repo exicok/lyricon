@@ -15,6 +15,15 @@ import io.github.proify.lyricon.provider.IProviderBinder
 import io.github.proify.lyricon.provider.ProviderInfo
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * 提供端连接：与一个提供端进程的注册 Binder 生命周期。
+ *
+ * 持有其远端服务桩；Binder 死亡时经 [BinderDeathTracker] 身份校验后
+ * 拆除并通知活跃播放器中枢。
+ *
+ * @property providerInfo 提供端身份。
+ * @property activePlayers 活跃播放器中枢（断开时释放）。
+ */
 internal class ProviderConnection(
     binder: IProviderBinder,
     val providerInfo: ProviderInfo,

@@ -12,12 +12,20 @@ import android.util.Log
 import io.github.proify.lyricon.provider.ProviderInfo
 import java.nio.ByteBuffer
 
+/**
+ * 提供端位置共享内存通道：创建以提供端身份命名的共享内存并映射只读缓冲。
+ *
+ * 提供端通过 AIDL 取得同一内存对象高频写入位置，中央侧低频读取。
+ *
+ * @property providerInfo 提供端身份，用于共享内存命名。
+ */
 internal class PositionMemoryChannel(
     private val providerInfo: ProviderInfo
 ) {
 
     private var readBuffer: ByteBuffer? = null
 
+    /** 映射后的共享内存（通过 AIDL 返回给提供端）。 */
     var sharedMemory: SharedMemory? = null
         private set
 
@@ -25,12 +33,14 @@ internal class PositionMemoryChannel(
         initialize()
     }
 
+    /** 读取最近一次写入的位置（毫秒，非负）；失败时返回 0。 */
     fun readPosition(): Long = try {
         readBuffer?.getLong(POSITION_OFFSET)?.coerceAtLeast(0L) ?: 0L
     } catch (_: Throwable) {
         0L
     }
 
+    /** 释放共享内存与映射。 */
     fun close() {
         readBuffer?.let { runCatching { SharedMemory.unmap(it) } }
         sharedMemory?.close()
@@ -38,6 +48,7 @@ internal class PositionMemoryChannel(
         sharedMemory = null
     }
 
+    /** 按提供端身份创建共享内存。 */
     private fun initialize() {
         try {
             val hashHex = Integer.toHexString(

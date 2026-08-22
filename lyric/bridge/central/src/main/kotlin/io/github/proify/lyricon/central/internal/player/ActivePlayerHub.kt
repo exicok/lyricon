@@ -34,14 +34,25 @@ internal class ActivePlayerHub : PlayerListener {
 
     private val activeInfo: ProviderInfo? get() = selector.activeSession?.providerInfo
 
+    /**
+     * 添加监听器；若已存在活跃播放器，立即同步一份完整状态快照。
+     *
+     * @param listener 活跃播放器状态监听器。
+     */
     fun addListener(listener: ActivePlayerListener) {
         if (listeners.add(listener)) {
             syncLatestState(listener)
         }
     }
 
+    /**
+     * 移除监听器。
+     *
+     * @param listener 之前添加的监听器。
+     */
     fun removeListener(listener: ActivePlayerListener) = listeners.remove(listener)
 
+    /** 向指定监听器同步当前活跃状态快照（若无活跃播放器则跳过）。 */
     fun syncLatestState(listener: ActivePlayerListener) {
         val snapshot = lock.read {
             selector.activeSession?.snapshot(selector.activeIsPlaying)
@@ -50,6 +61,11 @@ internal class ActivePlayerHub : PlayerListener {
         dispatchSnapshot(snapshot, listener)
     }
 
+    /**
+     * 活跃提供端失效（断开/注销）：若其正是当前活跃者则释放并广播清空状态。
+     *
+     * @param provider 失效提供端信息。
+     */
     fun notifyProviderInvalid(provider: ProviderInfo) {
         val shouldNotify = lock.write {
             selector.release(provider)
@@ -110,6 +126,7 @@ internal class ActivePlayerHub : PlayerListener {
         }
     }
 
+    /** 切换后向监听器全量同步新活跃者的状态。 */
     private fun syncNewProviderState(session: PlayerSession, listener: ActivePlayerListener) {
         val snapshot = lock.read {
             session.snapshot(selector.activeIsPlaying)
@@ -117,6 +134,7 @@ internal class ActivePlayerHub : PlayerListener {
         dispatchSnapshot(snapshot, listener)
     }
 
+    /** 把一份完整报告逐项分发给监听器。 */
     private fun dispatchSnapshot(snapshot: ActivePlayerReport, listener: ActivePlayerListener) {
         listener.onActiveProviderChanged(snapshot.providerInfo)
         listener.onPlaybackStateChanged(snapshot.isPlaying)
@@ -169,6 +187,7 @@ internal class ActivePlayerHub : PlayerListener {
         }
     }
 
+    /** 生成该会话在 [isPlaying] 下的完整报告。 */
     private fun PlayerSession.snapshot(isPlaying: Boolean) = ActivePlayerReport(
         providerInfo = providerInfo,
         isPlaying = isPlaying,

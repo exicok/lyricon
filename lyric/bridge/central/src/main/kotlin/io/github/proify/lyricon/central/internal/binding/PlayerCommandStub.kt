@@ -64,6 +64,7 @@ internal class PlayerCommandStub(
         ScreenStateMonitor.addListener(this)
     }
 
+    /** 关闭命令桩：停止轮询、释放共享内存与协程作用域。 */
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         ScreenStateMonitor.removeListener(this)
@@ -196,16 +197,19 @@ internal class PlayerCommandStub(
 
     override fun getPositionMemory(): SharedMemory? = positionMemory.sharedMemory
 
+    /** 开始位置轮询（灭屏时忽略）。 */
     private fun startPositionUpdate() {
         if (closed.get()) return
         if (ScreenStateMonitor.state == ScreenStateMonitor.ScreenState.OFF) return
         positionTicker.start(positionUpdateInterval)
     }
 
+    /** 停止位置轮询。 */
     private fun stopPositionUpdate() {
         positionTicker.stop()
     }
 
+    /** 轮询回调：写入会话并广播位置变化。 */
     private fun publishPosition(position: Long) {
         session.position = position
         playerEvents.safeNotify { onPositionChanged(session, position) }

@@ -14,6 +14,11 @@ import io.github.proify.lyricon.subscriber.IActivePlayerListener
 import io.github.proify.lyricon.subscriber.IRemoteService
 import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * 订阅端远端服务桩：把订阅端监听器接入活跃播放器中枢。
+ *
+ * @property connection 所属订阅端连接。
+ */
 internal class SubscriberServiceStub(
     private var connection: SubscriberConnection?
 ) : IRemoteService.Stub() {
@@ -36,6 +41,7 @@ internal class SubscriberServiceStub(
     override fun getActivePlayerPositionMemory(): SharedMemory? =
         if (closed.get()) null else subscription.positionMemory
 
+    /** 关闭订阅会话并释放连接引用。 */
     fun close() {
         if (!closed.compareAndSet(false, true)) return
         CentralRuntime.activePlayers.removeListener(subscription)

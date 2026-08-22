@@ -16,6 +16,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.yield
 
+/**
+ * 播放位置轮询器：按固定间隔读取位置并回调。
+ *
+ * 使用 elapsedRealtime 校正漂移；start/stop 可被幂等地重复调用，
+ * 内部用 Mutex 保证任务切换的原子性。
+ *
+ * @property scope 宿主协程作用域。
+ * @property readPosition 位置读取源。
+ * @property onPosition 每次读到位置后的回调。
+ */
 internal class PositionTicker(
     private val scope: CoroutineScope,
     private val readPosition: () -> Long,
@@ -27,6 +37,11 @@ internal class PositionTicker(
     @Volatile
     private var job: Job? = null
 
+    /**
+     * 开始轮询（若已在运行则忽略）。
+     *
+     * @param interval 轮询间隔（毫秒），最小 16ms。
+     */
     fun start(interval: Long) {
         if (job?.isActive == true) return
 
@@ -55,6 +70,7 @@ internal class PositionTicker(
         }
     }
 
+    /** 停止轮询（若未运行则为空操作）。 */
     fun stop() {
         val current = job
         current?.cancel()
@@ -68,6 +84,7 @@ internal class PositionTicker(
         }
     }
 
+    /** 停止轮询并释放资源。 */
     fun close() {
         stop()
     }
