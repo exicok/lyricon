@@ -17,6 +17,7 @@ import io.github.proify.lyricon.subscriber.ProviderInfo
 import io.github.proify.lyricon.subscriber.internal.wire.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -28,7 +29,9 @@ import java.util.concurrent.CopyOnWriteArraySet
  * 活跃播放器事件分发器。
  *
  * 作为 AIDL 回调接收中心服务推送的播放器事件，再分发给本地 [ActivePlayerListener]。
- * 播放进度通过 [SharedMemory] 轮询读取，避免高频 Binder 回调。
+ * 播放进度通过 [SharedMemory] 轮询读取；轮询仅在绑定共享内存后运行。
+ *
+ * 单个监听器抛出的异常会被隔离并记录，不影响其他监听器与 AIDL 回调事务。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class PlayerEventDispatcher : IActivePlayerListener.Stub() {
@@ -36,7 +39,7 @@ internal class PlayerEventDispatcher : IActivePlayerListener.Stub() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var positionMemory: SharedMemory? = null
     private var positionBuffer: ByteBuffer? = null
-    private var positionJob = scope.launch { readPositions() }
+    private var positionJob: Job? = null
 
     /** 注册本地活跃播放器监听器。 */
     fun registerActivePlayerListener(listener: ActivePlayerListener): Boolean =
@@ -46,71 +49,107 @@ internal class PlayerEventDispatcher : IActivePlayerListener.Stub() {
     fun unregisterActivePlayerListener(listener: ActivePlayerListener): Boolean =
         listeners.remove(listener)
 
-    /** 更新远端提供的播放进度共享内存。 */
+    /** 更新远端提供的播放进度共享内存；null 表示停止位置轮询。 */
     fun setPositionSharedMemory(memory: SharedMemory?) {
-        positionBuffer = null
-        positionMemory?.close()
+        detachPositionMemory()
+        if (memory == null) return
+
         positionMemory = memory
-        positionBuffer = runCatching { memory?.mapReadOnly() }
-            .onFailure { Log.e(TAG, "Failed to map position memory", it) }
-            .getOrNull()
+        positionBuffer = try {
+            memory.mapReadOnly()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to map position memory", e)
+            memory.close()
+            positionMemory = null
+            null
+        }
+        restartPositionPoll()
     }
 
     override fun onActiveProviderChanged(providerInfo: ByteArray?) {
         val info = providerInfo?.takeIf { it.isNotEmpty() }?.decode<ProviderInfo>()
-        listeners.forEach { it.onActiveProviderChanged(info) }
+        dispatch { it.onActiveProviderChanged(info) }
     }
 
     override fun onSongChanged(song: ByteArray?) {
         val value = song?.takeIf { it.isNotEmpty() }?.decode<Song>()
-        listeners.forEach { it.onSongChanged(value) }
+        dispatch { it.onSongChanged(value) }
     }
 
     override fun onPlaybackStateChanged(isPlaying: Boolean) {
-        listeners.forEach { it.onPlaybackStateChanged(isPlaying) }
+        dispatch { it.onPlaybackStateChanged(isPlaying) }
     }
 
     override fun onSeekTo(position: Long) {
-        listeners.forEach { it.onSeekTo(position) }
+        dispatch { it.onSeekTo(position) }
     }
 
     override fun onReceiveText(text: String?) {
-        listeners.forEach { it.onReceiveText(text) }
+        dispatch { it.onReceiveText(text) }
     }
 
     override fun onDisplayTranslationChanged(isDisplayTranslation: Boolean) {
-        listeners.forEach { it.onDisplayTranslationChanged(isDisplayTranslation) }
+        dispatch { it.onDisplayTranslationChanged(isDisplayTranslation) }
     }
 
     override fun onDisplayRomaChanged(isDisplayRoma: Boolean) {
-        listeners.forEach { it.onDisplayRomaChanged(isDisplayRoma) }
+        dispatch { it.onDisplayRomaChanged(isDisplayRoma) }
     }
 
-    /** 释放共享内存；[clearListeners] 为 true 时同时结束调度器生命周期。 */
+    /**
+     * 释放共享内存；[clearListeners] 为 true 时同时结束调度器生命周期。
+     */
     fun release(clearListeners: Boolean = false) {
+        detachPositionMemory()
+        if (!clearListeners) return
+
+        positionJob?.cancel()
+        positionJob = null
+        scope.cancel()
+        listeners.clear()
+    }
+
+    /** 释放共享内存映射并停止位置轮询。 */
+    private fun detachPositionMemory() {
+        positionJob?.cancel()
+        positionJob = null
         positionBuffer = null
         positionMemory?.close()
         positionMemory = null
-        if (!clearListeners) return
+    }
 
-        positionJob.cancel()
-        scope.cancel()
-        listeners.clear()
+    /** 重新启动位置轮询（每次绑定共享内存时调用）。 */
+    private fun restartPositionPoll() {
+        if (positionBuffer == null) return
+        positionJob?.cancel()
+        positionJob = scope.launch { readPositions() }
     }
 
     private suspend fun readPositions() {
         var lastPosition = Long.MIN_VALUE
         while (true) {
+            val buffer = positionBuffer ?: return
             val position = try {
-                positionBuffer?.getLong(0)
+                buffer.getLong(0)
             } catch (_: Exception) {
                 null
             }
             if (position != null && position != lastPosition) {
                 lastPosition = position
-                listeners.forEach { it.onPositionChanged(position) }
+                dispatch { it.onPositionChanged(position) }
             }
             delay(POSITION_POLL_INTERVAL_MS)
+        }
+    }
+
+    /** 向所有监听器分发事件，隔离单个监听器的异常。 */
+    private inline fun dispatch(crossinline block: (ActivePlayerListener) -> Unit) {
+        for (listener in listeners) {
+            try {
+                block(listener)
+            } catch (e: Exception) {
+                Log.e(TAG, "Dispatch failed for listener: " + listener.javaClass.name, e)
+            }
         }
     }
 
