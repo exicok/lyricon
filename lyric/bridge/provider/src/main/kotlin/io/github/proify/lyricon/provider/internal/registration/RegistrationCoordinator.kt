@@ -21,13 +21,15 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * 注册协调器：发送注册广播、管理连接超时，并在中心服务重启后恢复注册。
+ * 注册协调器：发送注册广播、管理连接超时与失败重试，并在中心服务重启后恢复注册。
  *
- * 每次 [start] 建立一次注册尝试；[cancel] 结束尝试，之后到达的中心回调会被
- * [RegistrationBinder] 忽略，从而同时覆盖"断开已连接"与"取消连接中"两种语义。
+ * 每次 [start] 建立一次注册尝试；[cancel] 结束尝试并停止重试，之后到达的中心回调
+ * 会被 [RegistrationBinder] 忽略，从而同时覆盖"断开已连接"与"取消连接中"两种语义。
  *
- * [wantsConnection] 记录提供端是否期望保持连接：为 true 时，中心服务启动广播
- * 会触发重新注册（覆盖断开、超时等所有非用户取消的断连路径）。
+ * [wantsConnection] 记录提供端是否期望保持连接：为 true 时，
+ * - 中心服务启动广播触发重新注册；
+ * - 注册失败/超时按指数退避自动重试（1s 起，封顶 [MAX_RETRY_DELAY_MS]），
+ *   覆盖中心暂时不可用、广播丢失等场景，无需等待下一次中心启动。
  */
 internal class RegistrationCoordinator(
     private val context: Context,
@@ -38,14 +40,24 @@ internal class RegistrationCoordinator(
 ) : CentralBootReceiver.BootListener {
 
     private var timeoutJob: Job? = null
+    private var retryJob: Job? = null
 
     /** 期望保持连接（register 时置位，unregister/destroy 时复位）。 */
     @Volatile
     private var wantsConnection: Boolean = false
 
+    /** 下一次失败重试的等待时间（指数退避）。 */
+    @Volatile
+    private var retryDelayMs: Long = INITIAL_RETRY_DELAY_MS
+
     private val attempt = object : RegistrationBinder.RegistrationAttempt {
-        override fun onCompleted() {
+        override fun onCompleted(connected: Boolean) {
             cancelTimeout()
+            if (connected) {
+                cancelRetry()
+            } else {
+                scheduleRetry()
+            }
             registrationBinder.endAttempt(this)
         }
     }
@@ -57,6 +69,9 @@ internal class RegistrationCoordinator(
     /** 发出注册广播；返回是否真正启动了一次注册。 */
     fun start(): Boolean {
         if (centralPackageName.isBlank()) return false
+        // 用户/外部主动触发：取消待定重试，退避回到起点。
+        cancelRetry()
+        retryDelayMs = INITIAL_RETRY_DELAY_MS
         // 状态机权威判定：连接中或已连接时不重复注册，避免破坏现有连接。
         if (!connection.beginRegistration()) return false
 
@@ -82,10 +97,11 @@ internal class RegistrationCoordinator(
         }
     }
 
-    /** 取消当前注册尝试：清空超时、复位期望连接标记，并让迟到回调失效。 */
+    /** 取消当前注册尝试：清空超时与重试、复位期望连接标记，并让迟到回调失效。 */
     fun cancel() {
         wantsConnection = false
         cancelTimeout()
+        cancelRetry()
         registrationBinder.endAttempt(attempt)
     }
 
@@ -99,16 +115,35 @@ internal class RegistrationCoordinator(
         timeoutJob = null
     }
 
+    private fun cancelRetry() {
+        retryJob?.cancel()
+        retryJob = null
+    }
+
     private fun scheduleTimeout() {
         cancelTimeout()
         timeoutJob = scope.launch {
             delay(CONNECTION_TIMEOUT_MS)
             connection.onRegistrationTimeout()
             registrationBinder.endAttempt(attempt)
+            scheduleRetry()
+        }
+    }
+
+    /** 注册失败/超时后按指数退避安排一次重试（仅当仍期望连接时）。 */
+    private fun scheduleRetry() {
+        if (!wantsConnection) return
+        cancelRetry()
+        retryJob = scope.launch {
+            delay(retryDelayMs)
+            retryDelayMs = (retryDelayMs * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
+            start()
         }
     }
 
     private companion object {
         private const val CONNECTION_TIMEOUT_MS = 4_000L
+        private const val INITIAL_RETRY_DELAY_MS = 1_000L
+        private const val MAX_RETRY_DELAY_MS = 30_000L
     }
 }

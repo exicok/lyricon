@@ -79,7 +79,7 @@ internal class CentralConnection(
     }
 
     /** 接收中心服务返回的远端服务 Binder。 */
-    override fun onRemoteService(service: IRemoteService?) {
+    override fun onRemoteService(service: IRemoteService?): Boolean {
         if (ProviderConstants.DEBUG) Log.d(TAG, "Bind remote service")
 
         // 先拆除旧连接（等价于原有 REPLACE 断连）。
@@ -87,31 +87,38 @@ internal class CentralConnection(
 
         if (service == null) {
             Log.w(TAG, "Service is null")
-            return
+            return false
         }
         val binder = service.asBinder()
         if (!binder.isBinderAlive) {
             Log.w(TAG, "Binder is not alive")
-            return
+            return false
         }
 
         try {
             binder.linkToDeath(deathRecipient, 0)
         } catch (e: RemoteException) {
             Log.e(TAG, "Failed to link death recipient", e)
-            return
+            return false
         }
 
         // linkToDeath 与赋值之间远端可能恰好死亡：此时放弃连接，
         // 避免绑定一个已死的 Binder 却对外宣称连接成功。
         if (!binder.isBinderAlive) {
             Log.w(TAG, "Remote binder died during registration")
-            return
+            return false
+        }
+
+        val player = service.player
+        if (player == null) {
+            Log.w(TAG, "Remote player is unavailable")
+            return false
         }
 
         remoteService = service
-        playerChannel.attachPlayer(service.player)
+        playerChannel.attachPlayer(player)
         transition(ConnectionTrigger.SERVICE_READY)
+        return true
     }
 
     /** 将缓存的播放器状态同步到当前远端播放器。 */

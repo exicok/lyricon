@@ -20,7 +20,8 @@ import io.github.proify.lyricon.provider.internal.wire.json
  * 该桩负责向中心服务提供注册信息与本地命令 Binder，并接收中心服务返回的远端服务 Binder。
  *
  * 每次注册广播对应一次 [RegistrationAttempt]；尝试被取消（用户断开、销毁或超时）后，
- * 迟到的注册回调将被忽略，不会建立连接。回调的消费在锁内完成，保证至多一次。
+ * 迟到的注册回调将被忽略，不会建立连接。尝试由 [RegistrationAttempts] 托管，
+ * 保证回调至多被消费一次。
  */
 internal class RegistrationBinder(
     providerInfo: ProviderInfo,
@@ -28,8 +29,7 @@ internal class RegistrationBinder(
     private val remoteServiceSink: RemoteServiceSink<IRemoteService?>,
 ) : IProviderBinder.Stub() {
 
-    @Volatile
-    private var pendingAttempt: RegistrationAttempt? = null
+    private val attempts = RegistrationAttempts<RegistrationAttempt>()
 
     private val serializedProviderInfo: ByteArray by lazy {
         json.encodeToString(providerInfo).toByteArray()
@@ -37,32 +37,23 @@ internal class RegistrationBinder(
 
     /** 进入等待中心服务回调的状态。 */
     fun beginAttempt(attempt: RegistrationAttempt) {
-        synchronized(this) {
-            pendingAttempt = attempt
-        }
+        attempts.begin(attempt)
     }
 
     /** 结束等待：仅在 [attempt] 仍为当前尝试时清除。 */
     fun endAttempt(attempt: RegistrationAttempt) {
-        synchronized(this) {
-            if (pendingAttempt === attempt) pendingAttempt = null
-        }
+        attempts.end(attempt)
     }
 
     override fun onRegistrationCallback(remoteProviderService: IRemoteService?) {
         // 原子地消费本次尝试：迟到回调（尝试已被取消）或重复回调（已被消费）
-        // 在这里被拦截，不再触碰连接端点。
-        val attempt = synchronized(this) {
-            val current = pendingAttempt
-            pendingAttempt = null
-            current
-        } ?: run {
+        // 在这里被拦截，不再触碰连接端点，并把结果上报注册尝试。
+        val attempt = attempts.consume() ?: run {
             Log.w(TAG, "Ignoring registration callback (attempt was cancelled)")
             return
         }
-
-        remoteServiceSink.onRemoteService(remoteProviderService)
-        attempt.onCompleted()
+        val connected = remoteServiceSink.onRemoteService(remoteProviderService)
+        attempt.onCompleted(connected)
     }
 
     override fun getProviderService(): IProviderService = providerCommand
@@ -70,8 +61,12 @@ internal class RegistrationBinder(
 
     /** 一次注册尝试：中心服务回调返回并处理完成后触发。 */
     interface RegistrationAttempt {
-        /** 回调已处理完成：清理超时等待等。 */
-        fun onCompleted()
+        /**
+         * 回调已处理完成。
+         *
+         * @param connected 是否成功建立连接；false 时调用方可安排重试。
+         */
+        fun onCompleted(connected: Boolean)
     }
 
     private companion object {
