@@ -22,6 +22,10 @@ import io.github.proify.lyricon.provider.internal.wire.json
  * 每次注册广播对应一次 [RegistrationAttempt]；尝试被取消（用户断开、销毁或超时）后，
  * 迟到的注册回调将被忽略，不会建立连接。尝试由 [RegistrationAttempts] 托管，
  * 保证回调至多被消费一次。
+ *
+ * @property providerInfo 注册信息，序列化后通过 [getProviderInfo] 交给中心服务。
+ * @property providerCommand 中心服务调用本地命令的桩。
+ * @property remoteServiceSink 连接端点，接收中心服务返回的远端服务。
  */
 internal class RegistrationBinder(
     providerInfo: ProviderInfo,
@@ -29,8 +33,10 @@ internal class RegistrationBinder(
     private val remoteServiceSink: RemoteServiceSink<IRemoteService?>,
 ) : IProviderBinder.Stub() {
 
+    /** 等待中的注册尝试登记表。 */
     private val attempts = RegistrationAttempts<RegistrationAttempt>()
 
+    /** 注册信息的 JSON 序列化结果（懒生成，只算一次）。 */
     private val serializedProviderInfo: ByteArray by lazy {
         json.encodeToString(providerInfo).toByteArray()
     }

@@ -30,6 +30,11 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * 只负责装配与生命周期：注册流程交给 [RegistrationCoordinator]，
  * 远端连接交给 [CentralConnection]；自动同步由 [autoSync] 策略驱动。
+ *
+ * @property context 注册广播与进程信息所需的上下文。
+ * @property providerInfo 提供端注册信息。
+ * @property providerService 暴露给中心服务调用的本地命令处理器。
+ * @property centralPackageName 中心服务所在包名。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class LyriconProviderImpl(
@@ -38,11 +43,23 @@ internal class LyriconProviderImpl(
     providerService: ProviderService? = null,
     private val centralPackageName: String,
 ) : LyriconProvider, ConnectionListener {
+
+    /** 是否已销毁；销毁后返回全部 no-op。 */
     private val destroyed = AtomicBoolean(false)
+
+    /** 注册超时与失败重试的协程作用域。 */
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** 中心服务调用本地命令的 AIDL 桩。 */
     private val commandStub = ProviderCommandStub(providerService)
+
+    /** 与中心服务的连接端点。 */
     private val connection = CentralConnection(this)
+
+    /** 注册 AIDL 桩，承载注册回调与注册信息。 */
     private val registrationBinder = RegistrationBinder(providerInfo, commandStub, connection)
+
+    /** 注册协调器：广播、超时、重试与启动恢复。 */
     private val registration = RegistrationCoordinator(
         context,
         centralPackageName,

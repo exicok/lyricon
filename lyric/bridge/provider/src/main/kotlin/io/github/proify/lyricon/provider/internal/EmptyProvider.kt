@@ -26,6 +26,7 @@ class EmptyProvider(override val providerInfo: ProviderInfo) : LyriconProvider {
     override fun unregister() = false
     override fun destroy() = false
 
+    /** 空远端服务：所有操作均无效果。 */
     private object EmptyRemoteService : RemoteService {
         override val player: RemotePlayer = EmptyRemotePlayer
         override val isActive: Boolean = false
@@ -34,6 +35,7 @@ class EmptyProvider(override val providerInfo: ProviderInfo) : LyriconProvider {
         override fun removeConnectionListener(listener: ConnectionListener): Boolean = false
     }
 
+    /** 空远端播放器：所有发送均返回 false。 */
     private object EmptyRemotePlayer : RemotePlayer {
         override val isActive: Boolean = false
         override fun setSong(song: Song?): Boolean = false

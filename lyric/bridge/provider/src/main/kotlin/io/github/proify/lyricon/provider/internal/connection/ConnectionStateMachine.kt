@@ -62,6 +62,9 @@ internal data class ConnectionTransition(
  * 所有状态转移都经由 [on] 完成：状态与监听器通知在同一处决定，
  * [CentralConnection] 只负责把转移翻译成实际的 Binder 操作。
  */
+/**
+ * @property initialStatus 初始连接状态，默认 [ConnectionStatus.DISCONNECTED]（用于测试或恢复）。
+ */
 internal class ConnectionStateMachine(
     initialStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED,
 ) {
@@ -87,6 +90,12 @@ internal class ConnectionStateMachine(
         return transition
     }
 
+    /**
+     * 计算一次触发对应的转移结果（不修改本机状态）。
+     *
+     * @param trigger 触发事件。
+     * @param serviceWasBound 拆除旧连接时是否有已绑定的远端服务。
+     */
     private fun transitionFor(
         trigger: ConnectionTrigger,
         serviceWasBound: Boolean,

@@ -31,21 +31,37 @@ import java.util.concurrent.CopyOnWriteArraySet
  *
  * 连接状态由 [ConnectionStateMachine] 统一决策；该类负责把状态转移翻译成实际的
  * Binder 操作（绑定、死亡监听、拆除），并向外提供带重放缓存的 [RemotePlayer]。
+ *
+ * @property provider 用于连接监听器回调的提供端实例。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class CentralConnection(
     private val provider: LyriconProvider,
 ) : RemoteService, RemoteServiceSink<IRemoteService?> {
+
+    /** 远端播放器 Binder 通道（AIDL + 共享内存）。 */
     private val playerChannel = AidlRemotePlayer()
+
+    /** 带断线重放能力的播放器门面。 */
     private val playerCache = ResyncingPlayer(playerChannel)
+
+    /** 连接状态监听器集合。 */
     private val listeners = CopyOnWriteArraySet<ConnectionListener>()
+
+    /** 连接状态机。 */
     private val machine = ConnectionStateMachine()
+
+    /** 监听器通知回调的主线程作用域。 */
     private val callbackScope = CoroutineScope(Dispatchers.Main.immediate)
+
+    /** 状态转移与 Binder 操作互斥锁。 */
     private val transitionLock = Any()
 
+    /** 当前绑定的远端服务，null 表示未连接。 */
     @Volatile
     private var remoteService: IRemoteService? = null
 
+    /** 远端 Binder 死亡监听。 */
     private val deathRecipient = IBinder.DeathRecipient {
         transition(ConnectionTrigger.SERVICE_LOST)
     }
@@ -176,6 +192,11 @@ internal class CentralConnection(
             .onFailure { Log.e(TAG, "Failed to disconnect remote service", it) }
     }
 
+    /**
+     * 在主线程向所有监听器分发一次连接通知。
+     *
+     * @param notice 通知类型，null 表示无需分发。
+     */
     private fun dispatchNotice(notice: ConnectionNotice?) {
         if (notice == null) return
 

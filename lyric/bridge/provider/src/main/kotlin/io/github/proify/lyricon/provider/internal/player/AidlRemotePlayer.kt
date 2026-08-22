@@ -26,18 +26,29 @@ import java.nio.ByteBuffer
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class AidlRemotePlayer : RemotePlayer {
 
-    /** 当前连接状态是否允许发送播放器命令。 */
+    /** 当前连接状态是否允许发送播放器命令（由连接端点随状态转移更新）。 */
     @Volatile
     var isSendingEnabled: Boolean = false
 
+    /** 远端播放器 AIDL 代理，null 表示未连接。 */
     private var remotePlayer: IRemotePlayer? = null
+
+    /** 中心服务返回的共享内存句柄。 */
     private var positionSharedMemory: SharedMemory? = null
+
+    /** [positionSharedMemory] 的读写映射缓冲。 */
     private var positionBuffer: ByteBuffer? = null
 
     override val isActive: Boolean
         get() = remotePlayer?.asBinder()?.isBinderAlive == true
 
-    /** 绑定或清空远端播放器 Binder。 */
+    /**
+     * 绑定或清空远端播放器 Binder。
+     *
+     * 会同时重建位置共享内存映射；映射失败时立即关闭已取得的共享内存，避免泄漏。
+     *
+     * @param player 远端播放器，null 表示清空。
+     */
     fun attachPlayer(player: IRemotePlayer?) {
         detachPositionMemory()
         remotePlayer = player
@@ -48,7 +59,6 @@ internal class AidlRemotePlayer : RemotePlayer {
             positionSharedMemory?.mapReadWrite()
         } catch (e: Exception) {
             Log.e(TAG, "Failed to map position memory", e)
-            // 映射失败时立即关闭已取得的共享内存，避免泄漏。
             positionSharedMemory?.close()
             positionSharedMemory = null
             null
@@ -99,6 +109,11 @@ internal class AidlRemotePlayer : RemotePlayer {
         setPlaybackState2(state)
     }
 
+    /**
+     * 在允许发送且已连接时执行一次远端命令。
+     *
+     * @return 命令是否成功发出。
+     */
     private inline fun send(block: IRemotePlayer.() -> Unit): Boolean {
         val player = remotePlayer
         if (!isSendingEnabled || player == null) return false
@@ -112,6 +127,7 @@ internal class AidlRemotePlayer : RemotePlayer {
         }
     }
 
+    /** 关闭位置共享内存映射并释放句柄。 */
     private fun detachPositionMemory() {
         positionBuffer = null
         positionSharedMemory?.close()

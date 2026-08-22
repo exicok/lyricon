@@ -30,6 +30,12 @@ import kotlinx.coroutines.launch
  * - 中心服务启动广播触发重新注册；
  * - 注册失败/超时按指数退避自动重试（1s 起，封顶 [MAX_RETRY_DELAY_MS]），
  *   覆盖中心暂时不可用、广播丢失等场景，无需等待下一次中心启动。
+ *
+ * @property context 发送注册广播的上下文。
+ * @property centralPackageName 中心服务所在包名。
+ * @property registrationBinder 注册 AIDL 桩。
+ * @property connection 连接端点。
+ * @property scope 超时与重试协程的宿主作用域。
  */
 internal class RegistrationCoordinator(
     private val context: Context,
@@ -39,7 +45,10 @@ internal class RegistrationCoordinator(
     private val scope: CoroutineScope,
 ) : CentralBootReceiver.BootListener {
 
+    /** 当前注册尝试的超时协程。 */
     private var timeoutJob: Job? = null
+
+    /** 失败重试协程。 */
     private var retryJob: Job? = null
 
     /** 期望保持连接（register 时置位，unregister/destroy 时复位）。 */
@@ -50,6 +59,7 @@ internal class RegistrationCoordinator(
     @Volatile
     private var retryDelayMs: Long = INITIAL_RETRY_DELAY_MS
 
+    /** 当前注册尝试的回调：成功后停止重试，失败后安排下一次重试。 */
     private val attempt = object : RegistrationBinder.RegistrationAttempt {
         override fun onCompleted(connected: Boolean) {
             cancelTimeout()
@@ -105,21 +115,25 @@ internal class RegistrationCoordinator(
         registrationBinder.endAttempt(attempt)
     }
 
+    /** 销毁：取消全部等待并停止监听中心启动广播。 */
     fun close() {
         cancel()
         CentralBootReceiver.removeBootListener(this)
     }
 
+    /** 取消注册超时等待。 */
     private fun cancelTimeout() {
         timeoutJob?.cancel()
         timeoutJob = null
     }
 
+    /** 取消待定的失败重试。 */
     private fun cancelRetry() {
         retryJob?.cancel()
         retryJob = null
     }
 
+    /** 启动注册超时等待；超时后结束尝试并按退避安排重试。 */
     private fun scheduleTimeout() {
         cancelTimeout()
         timeoutJob = scope.launch {

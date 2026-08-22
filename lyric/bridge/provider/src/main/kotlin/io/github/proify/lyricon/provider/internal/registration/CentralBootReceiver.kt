@@ -16,13 +16,17 @@ import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * 中央服务启动完成广播接收器，用于协调服务重启后的恢复注册。
+ *
+ * 全局单例：只注册一次系统广播接收器，向所有 [BootListener] 分发启动完成事件。
  */
 internal object CentralBootReceiver {
 
+    /** 是否已完成系统广播注册。 */
     @Volatile
     var isInitialized = false
         private set
 
+    /** 启动完成事件监听器集合。 */
     private val listeners = CopyOnWriteArraySet<BootListener>()
 
     /**
@@ -48,6 +52,8 @@ internal object CentralBootReceiver {
 
     /**
      * 执行广播接收器的初始化与系统注册。
+     *
+     * 幂等：重复调用不生效。
      *
      * @param context 建议传入 Application Context。
      */

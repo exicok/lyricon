@@ -83,12 +83,14 @@ object LyriconFactory {
         return EmptyProvider(providerInfo)
     }
 
+    /** 初始化中央启动广播接收器（幂等）。 */
     private fun initialize(context: Context) {
         if (!CentralBootReceiver.isInitialized) {
             CentralBootReceiver.initialize(context)
         }
     }
 
+    /** 读取当前进程名；Android 9 以下回退到 ActivityManager 遍历。 */
     private fun getCurrentProcessName(context: Context): String? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             Application.getProcessName()

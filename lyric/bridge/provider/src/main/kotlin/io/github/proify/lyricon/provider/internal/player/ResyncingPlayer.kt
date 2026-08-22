@@ -22,19 +22,25 @@ internal class ResyncingPlayer(
     private val channel: RemotePlayer,
 ) : RemotePlayer {
 
+    /** 当前的播放会话快照；对外始终是一致的一份。 */
     @Volatile
     private var snapshot: PlayerSessionSnapshot = PlayerSessionSnapshot.EMPTY
 
+    /** 快照读改写互斥锁，防止并发写入丢更新。 */
     private val updateLock = Any()
 
-    /** 串行化地执行一次快照更新。 */
+    /**
+     * 串行化地执行一次快照更新。
+     *
+     * @param transform 基于当前快照产生新快照的转换函数。
+     */
     private inline fun commit(transform: (PlayerSessionSnapshot) -> PlayerSessionSnapshot) {
         synchronized(updateLock) {
             snapshot = transform(snapshot)
         }
     }
 
-    /** 将当前快照回放到远端通道。 */
+    /** 将当前快照整体回放到远端通道。 */
     fun sync() {
         snapshot.replayTo(channel)
     }
