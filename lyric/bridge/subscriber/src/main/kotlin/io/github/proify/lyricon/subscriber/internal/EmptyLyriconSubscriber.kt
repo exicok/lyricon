@@ -4,7 +4,12 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.subscriber
+package io.github.proify.lyricon.subscriber.internal
+
+import io.github.proify.lyricon.subscriber.ActivePlayerListener
+import io.github.proify.lyricon.subscriber.ConnectionListener
+import io.github.proify.lyricon.subscriber.LyriconSubscriber
+import io.github.proify.lyricon.subscriber.SubscriberInfo
 
 /** 不支持当前运行环境时返回的订阅端空实现。 */
 class EmptyLyriconSubscriber(

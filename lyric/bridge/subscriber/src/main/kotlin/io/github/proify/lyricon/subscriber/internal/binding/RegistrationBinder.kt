@@ -6,8 +6,12 @@
 
 @file:Suppress("unused")
 
-package io.github.proify.lyricon.subscriber
+package io.github.proify.lyricon.subscriber.internal.binding
 
+import io.github.proify.lyricon.subscriber.IRemoteService
+import io.github.proify.lyricon.subscriber.ISubscriberBinder
+import io.github.proify.lyricon.subscriber.SubscriberInfo
+import io.github.proify.lyricon.subscriber.internal.wire.json
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -15,11 +19,11 @@ import java.util.concurrent.CopyOnWriteArraySet
  *
  * 该类只负责传递注册信息和接收中心服务返回的远端服务 Binder。
  */
-internal class SubscriberBinder(
+internal class RegistrationBinder(
     private val subscriberInfo: SubscriberInfo
 ) : ISubscriberBinder.Stub() {
 
-    private val subscriberInfoByteArray by lazy {
+    private val serializedSubscriberInfo by lazy {
         json.encodeToString(subscriberInfo).toByteArray()
     }
 
@@ -39,7 +43,7 @@ internal class SubscriberBinder(
         registrationCallbacks.forEach { it.onRegistered(service) }
     }
 
-    override fun getSubscriberInfo(): ByteArray = subscriberInfoByteArray
+    override fun getSubscriberInfo(): ByteArray = serializedSubscriberInfo
 
     /** 中心服务完成注册后触发的内部回调。 */
     interface RegistrationCallback {

@@ -4,13 +4,17 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.subscriber
+package io.github.proify.lyricon.subscriber.internal.player
 
 import android.os.Build
 import android.os.SharedMemory
 import android.util.Log
 import androidx.annotation.RequiresApi
 import io.github.proify.lyricon.lyric.model.Song
+import io.github.proify.lyricon.subscriber.ActivePlayerListener
+import io.github.proify.lyricon.subscriber.IActivePlayerListener
+import io.github.proify.lyricon.subscriber.ProviderInfo
+import io.github.proify.lyricon.subscriber.internal.wire.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,7 +31,7 @@ import java.util.concurrent.CopyOnWriteArraySet
  * 播放进度通过 [SharedMemory] 轮询读取，避免高频 Binder 回调。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
-internal class ActivePlayerListenerDispatcher : IActivePlayerListener.Stub() {
+internal class PlayerEventDispatcher : IActivePlayerListener.Stub() {
     private val listeners = CopyOnWriteArraySet<ActivePlayerListener>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var positionMemory: SharedMemory? = null
@@ -82,7 +86,7 @@ internal class ActivePlayerListenerDispatcher : IActivePlayerListener.Stub() {
         listeners.forEach { it.onDisplayRomaChanged(isDisplayRoma) }
     }
 
-    /** 释放共享内存；[clearListeners] 为 `true` 时同时结束调度器生命周期。 */
+    /** 释放共享内存；[clearListeners] 为 true 时同时结束调度器生命周期。 */
     fun release(clearListeners: Boolean = false) {
         positionBuffer = null
         positionMemory?.close()
@@ -116,7 +120,7 @@ internal class ActivePlayerListenerDispatcher : IActivePlayerListener.Stub() {
             .getOrNull()
 
     private companion object {
-        private const val TAG = "ActivePlayerListenerDis"
+        private const val TAG = "PlayerEventDispatcher"
         private const val POSITION_POLL_INTERVAL_MS = 16L
     }
 }

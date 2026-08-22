@@ -4,13 +4,23 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.subscriber
+package io.github.proify.lyricon.subscriber.internal
 
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.annotation.RequiresApi
+import io.github.proify.lyricon.subscriber.ActivePlayerListener
+import io.github.proify.lyricon.subscriber.ConnectionListener
+import io.github.proify.lyricon.subscriber.IRemoteService
+import io.github.proify.lyricon.subscriber.LyriconSubscriber
+import io.github.proify.lyricon.subscriber.SubscriberInfo
+import io.github.proify.lyricon.subscriber.SubscriberStatus
+import io.github.proify.lyricon.subscriber.internal.binding.RegistrationBinder
+import io.github.proify.lyricon.subscriber.internal.connection.CentralConnection
+import io.github.proify.lyricon.subscriber.internal.registration.CentralBootReceiver
+import io.github.proify.lyricon.subscriber.internal.SubscriberConstants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -25,7 +35,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 默认订阅端实现。
  *
  * 负责发送注册广播、处理连接超时重试、维护连接状态，并把远端服务交给
- * [SubscriberRemoteEndpoint] 管理。
+ * [CentralConnection] 管理。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
 internal class LyriconSubscriberImpl(
@@ -36,7 +46,7 @@ internal class LyriconSubscriberImpl(
     private val listeners = CopyOnWriteArraySet<ConnectionListener>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val remote =
-        SubscriberRemoteEndpoint { disconnect(remote = true, notifyRemote = false) }
+        CentralConnection { disconnect(remote = true, notifyRemote = false) }
     private val registration = Registration()
 
     @Volatile
@@ -94,12 +104,12 @@ internal class LyriconSubscriberImpl(
     }
 
     /** 管理注册广播、超时重试和中心服务重启后的恢复注册。 */
-    private inner class Registration : CentralServiceReceiver.ServiceListener {
-        private val binder = SubscriberBinder(subscriberInfo)
+    private inner class Registration : CentralBootReceiver.BootListener {
+        private val binder = RegistrationBinder(subscriberInfo)
         private var timeoutJob: Job? = null
         private var retryCount = 0
         private var reconnect = false
-        private val callback = object : SubscriberBinder.RegistrationCallback {
+        private val callback = object : RegistrationBinder.RegistrationCallback {
             override fun onRegistered(service: IRemoteService?) {
                 cancelTimeout()
                 retryCount = 0
@@ -109,7 +119,7 @@ internal class LyriconSubscriberImpl(
 
         init {
             binder.addRegistrationCallback(callback)
-            CentralServiceReceiver.addServiceListener(this)
+            CentralBootReceiver.addBootListener(this)
         }
 
         fun start(manual: Boolean) {
@@ -119,7 +129,7 @@ internal class LyriconSubscriberImpl(
             send()
         }
 
-        override fun onServiceBootCompleted() {
+        override fun onBootCompleted() {
             if (status.isDisconnectedByRemote()) start(manual = false)
         }
 
@@ -131,7 +141,7 @@ internal class LyriconSubscriberImpl(
         fun close() {
             cancelTimeout()
             binder.removeRegistrationCallback(callback)
-            CentralServiceReceiver.removeServiceListener(this)
+            CentralBootReceiver.removeBootListener(this)
         }
 
         private fun send() {
