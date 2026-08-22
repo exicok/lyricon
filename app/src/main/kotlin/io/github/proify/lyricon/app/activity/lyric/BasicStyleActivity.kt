@@ -140,6 +140,49 @@ class BasicLyricStyleActivity : AbstractLyricActivity() {
                         }
                     )
 
+                    val statusStrategyKeys = listOf(
+                        BasicStyle.STATUS_COLOR_STRATEGY_PRECISE,
+                        BasicStyle.STATUS_COLOR_STRATEGY_COMPAT
+                    )
+
+                    val statusStrategyOptions = listOf(
+                        DropdownItem(
+                            title = stringResource(R.string.option_status_color_strategy_precise)
+                        ),
+                        DropdownItem(
+                            title = stringResource(R.string.option_status_color_strategy_compat)
+                        ),
+                    )
+
+                    val currentStatusStrategy = preferences.getInt(
+                        "lyric_style_base_status_color_strategy",
+                        BasicStyle.Defaults.STATUS_COLOR_STRATEGY
+                    )
+
+                    val selectedStatusStrategyIndex = remember {
+                        mutableIntStateOf(
+                            statusStrategyKeys.indexOf(currentStatusStrategy).coerceAtLeast(0)
+                        )
+                    }
+
+                    OverlaySpinnerPreference(
+                        startAction = {
+                            IconActions(painterResource(R.drawable.ic_palette))
+                        },
+                        title = stringResource(R.string.item_status_color_strategy),
+                        items = statusStrategyOptions,
+                        selectedIndex = selectedStatusStrategyIndex.intValue,
+                        onSelectedIndexChange = {
+                            selectedStatusStrategyIndex.intValue = it
+                            preferences.editCommit {
+                                putInt(
+                                    "lyric_style_base_status_color_strategy",
+                                    statusStrategyKeys[it]
+                                )
+                            }
+                        }
+                    )
+
                     RectInputPreference(
                         preferences,
                         "lyric_style_base_margins",
