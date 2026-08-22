@@ -72,7 +72,7 @@ internal class LyriconProviderImpl(
 
     override fun unregister(): Boolean {
         if (destroyed.get()) return false
-        registration.cancelTimeout()
+        registration.cancel()
         connection.disconnectByUser()
         return true
     }

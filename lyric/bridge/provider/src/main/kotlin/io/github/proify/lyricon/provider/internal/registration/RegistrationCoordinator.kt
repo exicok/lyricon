@@ -22,6 +22,9 @@ import kotlinx.coroutines.launch
 
 /**
  * 注册协调器：发送注册广播、管理连接超时，并在中心服务重启后恢复注册。
+ *
+ * 每次 [start] 建立一次注册尝试；[cancel] 结束尝试，之后到达的中心回调会被
+ * [RegistrationBinder] 忽略，从而同时覆盖"断开已连接"与"取消连接中"两种语义。
  */
 internal class RegistrationCoordinator(
     private val context: Context,
@@ -32,10 +35,11 @@ internal class RegistrationCoordinator(
 ) : CentralBootReceiver.BootListener {
 
     private var timeoutJob: Job? = null
-    private val callback = object : RegistrationBinder.OnRegistrationCallback {
-        override fun onRegistered() {
+
+    private val attempt = object : RegistrationBinder.RegistrationAttempt {
+        override fun onCompleted() {
             cancelTimeout()
-            registrationBinder.removeRegistrationCallback(this)
+            registrationBinder.endAttempt(this)
         }
     }
 
@@ -49,7 +53,7 @@ internal class RegistrationCoordinator(
         if (!connection.canRegister()) return false
 
         connection.beginRegistration()
-        registrationBinder.addRegistrationCallback(callback)
+        registrationBinder.beginAttempt(attempt)
         scheduleTimeout()
         context.sendBroadcast(Intent(ACTION_REGISTER_PROVIDER).apply {
             setPackage(centralPackageName)
@@ -67,15 +71,20 @@ internal class RegistrationCoordinator(
         if (connection.connectionStatus == ConnectionStatus.DISCONNECTED_REMOTE) start()
     }
 
-    fun cancelTimeout() {
-        timeoutJob?.cancel()
-        timeoutJob = null
+    /** 取消当前注册尝试：清空超时，并让迟到回调失效。 */
+    fun cancel() {
+        cancelTimeout()
+        registrationBinder.endAttempt(attempt)
     }
 
     fun close() {
-        cancelTimeout()
-        registrationBinder.removeRegistrationCallback(callback)
+        cancel()
         CentralBootReceiver.removeBootListener(this)
+    }
+
+    private fun cancelTimeout() {
+        timeoutJob?.cancel()
+        timeoutJob = null
     }
 
     private fun scheduleTimeout() {
@@ -83,6 +92,7 @@ internal class RegistrationCoordinator(
         timeoutJob = scope.launch {
             delay(CONNECTION_TIMEOUT_MS)
             connection.onRegistrationTimeout()
+            registrationBinder.endAttempt(attempt)
         }
     }
 
