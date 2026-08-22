@@ -19,19 +19,20 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlin.concurrent.read
 import kotlin.concurrent.write
 
+/**
+ * 活跃播放器的编排中枢。
+ *
+ * 选择策略由 [ActivePlayerSelector] 决策；本类负责把决策落实为对 [ActivePlayerListener]
+ * 的通知（切换时全量报告、增量事件、异常隔离），并在活跃者断开时释放状态。
+ */
 internal class ActivePlayerHub : PlayerListener {
 
     private val debug = CentralConstants.isDebug()
     private val lock = ReentrantReadWriteLock()
     private val listeners = CopyOnWriteArraySet<ActivePlayerListener>()
+    private val selector = ActivePlayerSelector()
 
-    @Volatile
-    private var activeSession: PlayerSession? = null
-
-    private val activeInfo: ProviderInfo? get() = activeSession?.providerInfo
-
-    @Volatile
-    private var activeIsPlaying: Boolean = false
+    private val activeInfo: ProviderInfo? get() = selector.activeSession?.providerInfo
 
     fun addListener(listener: ActivePlayerListener) {
         if (listeners.add(listener)) {
@@ -43,7 +44,7 @@ internal class ActivePlayerHub : PlayerListener {
 
     fun syncLatestState(listener: ActivePlayerListener) {
         val snapshot = lock.read {
-            activeSession?.snapshot(activeIsPlaying)
+            selector.activeSession?.snapshot(selector.activeIsPlaying)
         } ?: return
 
         dispatchSnapshot(snapshot, listener)
@@ -51,13 +52,7 @@ internal class ActivePlayerHub : PlayerListener {
 
     fun notifyProviderInvalid(provider: ProviderInfo) {
         val shouldNotify = lock.write {
-            if (activeInfo == provider) {
-                activeSession = null
-                activeIsPlaying = false
-                true
-            } else {
-                false
-            }
+            selector.release(provider)
         }
 
         if (shouldNotify) {
@@ -115,9 +110,9 @@ internal class ActivePlayerHub : PlayerListener {
         }
     }
 
-    fun syncNewProviderState(session: PlayerSession, listener: ActivePlayerListener) {
+    private fun syncNewProviderState(session: PlayerSession, listener: ActivePlayerListener) {
         val snapshot = lock.read {
-            session.snapshot(activeIsPlaying)
+            session.snapshot(selector.activeIsPlaying)
         }
         dispatchSnapshot(snapshot, listener)
     }
@@ -137,38 +132,30 @@ internal class ActivePlayerHub : PlayerListener {
         listener.onPositionChanged(snapshot.position)
     }
 
+    /**
+     * 依据选择器决策分发一条来源事件。
+     *
+     * @param session 事件来源会话。
+     * @param allowDuplicateIfSwitching 切换后是否额外广播原始事件增量（见选择器说明）。
+     */
     private inline fun dispatchIfActive(
         session: PlayerSession,
         allowDuplicateIfSwitching: Boolean = true,
         crossinline notifier: (ActivePlayerListener) -> Unit
     ) {
-        val sessionInfo = session.providerInfo
-        val sessionPlaying = session.isPlaying
-        var isSwitched = false
-        var shouldBroadcastOriginal = false
+        val decision = lock.write {
+            selector.decide(session, allowDuplicateIfSwitching)
+        }
 
-        lock.write {
-            val currentInfo = activeInfo
-            if (currentInfo === sessionInfo) {
-                activeIsPlaying = sessionPlaying
-                shouldBroadcastOriginal = true
-            } else {
-                val canSwitch = currentInfo == null || (!activeIsPlaying && sessionPlaying)
-                if (canSwitch) {
-                    activeSession = session
-                    activeIsPlaying = sessionPlaying
-                    isSwitched = true
-                    shouldBroadcastOriginal = allowDuplicateIfSwitching
+        when (decision) {
+            ActivePlayerDecision.Ignore -> Unit
+            ActivePlayerDecision.Keep -> broadcast(notifier)
+            is ActivePlayerDecision.Switch -> {
+                broadcast { syncNewProviderState(decision.session, it) }
+                if (decision.broadcastOriginal) {
+                    broadcast(notifier)
                 }
             }
-        }
-
-        if (isSwitched) {
-            broadcast { syncNewProviderState(session, it) }
-        }
-
-        if (shouldBroadcastOriginal) {
-            broadcast(notifier)
         }
     }
 
