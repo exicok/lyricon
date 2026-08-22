@@ -6,14 +6,14 @@
 
 package io.github.proify.lyricon.central
 
-import io.github.proify.lyricon.central.provider.ProviderDirectory
-import io.github.proify.lyricon.central.provider.player.ActivePlayerCoordinator
-import io.github.proify.lyricon.central.registration.RegistrationHandler
-import io.github.proify.lyricon.central.subscriber.SubscriberDirectory
+import io.github.proify.lyricon.central.internal.player.ActivePlayerHub
+import io.github.proify.lyricon.central.internal.provider.ProviderDirectory
+import io.github.proify.lyricon.central.internal.registration.RegistrationDispatcher
+import io.github.proify.lyricon.central.internal.subscriber.SubscriberDirectory
 
 internal object CentralRuntime {
-    val activePlayers = ActivePlayerCoordinator()
+    val activePlayers = ActivePlayerHub()
     val providers = ProviderDirectory(activePlayers)
     val subscribers = SubscriberDirectory()
-    val registration = RegistrationHandler(providers, subscribers)
+    val registration = RegistrationDispatcher(providers, subscribers)
 }
