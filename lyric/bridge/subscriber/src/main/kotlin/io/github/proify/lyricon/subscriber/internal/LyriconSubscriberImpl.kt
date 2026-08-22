@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import androidx.annotation.RequiresApi
 import io.github.proify.lyricon.subscriber.ActivePlayerListener
 import io.github.proify.lyricon.subscriber.ConnectionListener
@@ -150,9 +151,15 @@ internal class LyriconSubscriberImpl(
             override fun onCompleted(service: IRemoteService?) {
                 cancelTimeout()
                 retryCount = 0
-                if (wantsConnection && !destroyed.get()) {
-                    this@LyriconSubscriberImpl.onRegistered(service, reconnect)
+                if (!wantsConnection || destroyed.get()) return
+
+                if (service == null) {
+                    // 中心返回空服务（异常路径）：不标记连接，保持期望连接等待恢复信号。
+                    Log.w(TAG, "Central returned null service, registration rejected")
+                    status = SubscriberStatus.DISCONNECTED
+                    return
                 }
+                this@LyriconSubscriberImpl.onRegistered(service, reconnect)
             }
         }
 
@@ -244,6 +251,7 @@ internal class LyriconSubscriberImpl(
     }
 
     private companion object {
+        private const val TAG = "LyriconSubscriberImpl"
         private const val MAX_RETRY_COUNT = 3
         private const val CONNECT_TIMEOUT_MS = 3_000L
     }

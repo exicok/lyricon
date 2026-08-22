@@ -12,7 +12,7 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
 import android.os.Build
-import io.github.proify.lyricon.subscriber.internal.EmptyLyriconSubscriber
+import io.github.proify.lyricon.subscriber.EmptyLyriconSubscriber
 import io.github.proify.lyricon.subscriber.internal.LyriconSubscriberImpl
 import io.github.proify.lyricon.subscriber.internal.registration.CentralBootReceiver
 
