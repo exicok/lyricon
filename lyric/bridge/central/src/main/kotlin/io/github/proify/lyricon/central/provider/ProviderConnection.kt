@@ -7,7 +7,7 @@
 package io.github.proify.lyricon.central.provider
 
 import android.os.IBinder
-import android.util.Log
+import io.github.proify.lyricon.central.connection.BinderDeathTracker
 import io.github.proify.lyricon.central.connection.RemoteConnection
 import io.github.proify.lyricon.central.provider.player.ActivePlayerCoordinator
 import io.github.proify.lyricon.provider.IProviderBinder
@@ -15,47 +15,79 @@ import io.github.proify.lyricon.provider.ProviderInfo
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class ProviderConnection(
-    private var binder: IProviderBinder?,
+    binder: IProviderBinder,
     val providerInfo: ProviderInfo,
-    private val activePlayers: ActivePlayerCoordinator
+    private val activePlayers: ActivePlayerCoordinator,
 ) : RemoteConnection<ProviderInfo> {
 
     override val key: ProviderInfo get() = providerInfo
 
     val service = ProviderServiceBinder(this)
 
-    private var deathRecipient: IBinder.DeathRecipient? = null
+    /** 当前有效的注册 Binder；死亡回调据此判断失效是否仍然成立。 */
+    @Volatile
+    private var binder: IProviderBinder? = binder
+
+    /** 注册表注入的拆除回调：从注册表移除并关闭连接。 */
+    private var onDeathHook: (() -> Unit)? = null
+
+    private val deathTracker = BinderDeathTracker()
     private val closed = AtomicBoolean(false)
 
+    init {
+        deathTracker.onDeath = ::onBinderDeath
+        deathTracker.track(binder.asBinder())
+    }
+
+    /**
+     * 重新绑定注册 Binder（提供端以新广播再次注册时调用）。
+     *
+     * 旧 Binder 的迟到死亡事件不再拆除连接；连接已关闭时返回 false，
+     * 调用方应改为创建新的连接。
+     */
+    fun reattach(newBinder: IProviderBinder): Boolean = synchronized(this) {
+        if (closed.get()) return false
+        binder = newBinder
+        deathTracker.track(newBinder.asBinder())
+        true
+    }
+
     override fun setDeathRecipient(onDeath: (() -> Unit)?) {
-        val next = onDeath?.let { IBinder.DeathRecipient { it() } }
-
-        deathRecipient?.runCatching {
-            binder?.asBinder()?.unlinkToDeath(this, 0)
-        }?.onFailure {
-            Log.e(TAG, "unlink to death failed", it)
+        synchronized(this) {
+            onDeathHook = onDeath
         }
+    }
 
-        next?.runCatching {
-            binder?.asBinder()?.linkToDeath(this, 0)
-        }?.onFailure {
-            Log.e(TAG, "link to death failed", it)
+    /**
+     * Binder 死亡回调（binder 线程）。
+     *
+     * 身份校验与拆除在同一把锁内完成：若重新注册恰好先完成，此处的死亡事件
+     * 将被忽略；若死亡先发生，则随后的重注册会新建连接。两种时序都不会留下
+     * "看似连接、实则已失效"的粘性死亡连接。
+     */
+    private fun onBinderDeath(deadBinder: IBinder) {
+        synchronized(this) {
+            if (closed.get()) return
+            if (binder?.asBinder() !== deadBinder) return
+
+            val hook = onDeathHook
+            if (hook != null) {
+                hook()
+            } else {
+                close()
+            }
         }
-
-        deathRecipient = next
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        synchronized(this) {
+            deathTracker.detach()
+            binder = null
+        }
         service.close()
-        setDeathRecipient(null)
-        binder = null
         activePlayers.notifyProviderInvalid(providerInfo)
     }
 
     override fun toString() = "ProviderConnection{$providerInfo}"
-
-    private companion object {
-        private const val TAG = "ProviderConnection"
-    }
 }

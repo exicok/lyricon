@@ -7,53 +7,83 @@
 package io.github.proify.lyricon.central.subscriber
 
 import android.os.IBinder
-import android.util.Log
+import io.github.proify.lyricon.central.connection.BinderDeathTracker
 import io.github.proify.lyricon.central.connection.RemoteConnection
 import io.github.proify.lyricon.subscriber.ISubscriberBinder
 import io.github.proify.lyricon.subscriber.SubscriberInfo
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal class SubscriberConnection(
-    private var binder: ISubscriberBinder?,
-    val subscriberInfo: SubscriberInfo
+    binder: ISubscriberBinder,
+    val subscriberInfo: SubscriberInfo,
 ) : RemoteConnection<SubscriberInfo> {
 
     override val key: SubscriberInfo get() = subscriberInfo
 
     val service = SubscriberServiceBinder(this)
 
-    private var deathRecipient: IBinder.DeathRecipient? = null
+    /** 当前有效的注册 Binder；死亡回调据此判断失效是否仍然成立。 */
+    @Volatile
+    private var binder: ISubscriberBinder? = binder
+
+    /** 注册表注入的拆除回调：从注册表移除并关闭连接。 */
+    private var onDeathHook: (() -> Unit)? = null
+
+    private val deathTracker = BinderDeathTracker()
     private val closed = AtomicBoolean(false)
 
+    init {
+        deathTracker.onDeath = ::onBinderDeath
+        deathTracker.track(binder.asBinder())
+    }
+
+    /**
+     * 重新绑定注册 Binder（订阅端以新广播再次注册时调用）。
+     *
+     * 旧 Binder 的迟到死亡事件不再拆除连接；连接已关闭时返回 false，
+     * 调用方应改为创建新的连接。
+     */
+    fun reattach(newBinder: ISubscriberBinder): Boolean = synchronized(this) {
+        if (closed.get()) return false
+        binder = newBinder
+        deathTracker.track(newBinder.asBinder())
+        true
+    }
+
     override fun setDeathRecipient(onDeath: (() -> Unit)?) {
-        if (closed.get() && onDeath != null) return
-
-        val next = onDeath?.let { IBinder.DeathRecipient { it() } }
-        deathRecipient?.runCatching {
-            binder?.asBinder()?.unlinkToDeath(this, 0)
-        }?.onFailure {
-            Log.e(TAG, "unlink to death failed", it)
+        synchronized(this) {
+            onDeathHook = onDeath
         }
+    }
 
-        next?.runCatching {
-            binder?.asBinder()?.linkToDeath(this, 0)
-        }?.onFailure {
-            Log.e(TAG, "link to death failed", it)
+    /**
+     * Binder 死亡回调（binder 线程）。
+     *
+     * 身份校验与拆除在同一把锁内完成，避免旧 Binder 的迟到死亡通知
+     * 拆除已被新注册替代的连接。
+     */
+    private fun onBinderDeath(deadBinder: IBinder) {
+        synchronized(this) {
+            if (closed.get()) return
+            if (binder?.asBinder() !== deadBinder) return
+
+            val hook = onDeathHook
+            if (hook != null) {
+                hook()
+            } else {
+                close()
+            }
         }
-
-        deathRecipient = next
     }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
-        setDeathRecipient(null)
+        synchronized(this) {
+            deathTracker.detach()
+            binder = null
+        }
         service.close()
-        binder = null
     }
 
     override fun toString() = "SubscriberConnection{$subscriberInfo}"
-
-    private companion object {
-        private const val TAG = "SubscriberConnection"
-    }
 }

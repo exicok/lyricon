@@ -18,7 +18,12 @@ internal class ProviderDirectory(
 
     fun getOrCreate(binder: IProviderBinder, info: ProviderInfo): ProviderConnection {
         val existing = registry.get(info)
-        if (existing != null) return existing
+        if (existing != null) {
+            // 提供端以新 Binder 重新注册：换绑死亡监听；已关闭的残留连接会被
+            // 清除并由下方新建连接取代。
+            if (existing.reattach(binder)) return existing
+            registry.unregister(existing)
+        }
         return registry.register(ProviderConnection(binder, info, activePlayers))
     }
 
