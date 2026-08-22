@@ -4,14 +4,13 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.provider.impl
+package io.github.proify.lyricon.provider.internal.connection
 
 import android.os.Build
 import android.os.IBinder
 import android.os.RemoteException
 import android.util.Log
 import androidx.annotation.RequiresApi
-import io.github.proify.lyricon.provider.CachedRemotePlayer
 import io.github.proify.lyricon.provider.ConnectionListener
 import io.github.proify.lyricon.provider.ConnectionStatus
 import io.github.proify.lyricon.provider.IRemoteService
@@ -19,25 +18,26 @@ import io.github.proify.lyricon.provider.LyriconProvider
 import io.github.proify.lyricon.provider.ProviderConstants
 import io.github.proify.lyricon.provider.RemotePlayer
 import io.github.proify.lyricon.provider.isConnected
+import io.github.proify.lyricon.provider.internal.player.AidlRemotePlayer
+import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer
 import io.github.proify.lyricon.provider.service.RemoteService
-import io.github.proify.lyricon.provider.service.RemoteServiceBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
- * 提供端远端连接端点。
+ * 提供端与中心服务的连接端点。
  *
  * 负责维护中心服务返回的 [IRemoteService]、监听 Binder 死亡、分发连接状态，
  * 并向外提供缓存后的 [RemotePlayer]。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
-internal class ProviderRemoteEndpoint(
+internal class CentralConnection(
     private val provider: LyriconProvider,
-) : RemoteService, RemoteServiceBinder<IRemoteService?> {
-    private val playerProxy = RemotePlayerProxy()
-    private val playerCache = CachedRemotePlayer(playerProxy)
+) : RemoteService, RemoteServiceSink<IRemoteService?> {
+    private val playerChannel = AidlRemotePlayer()
+    private val playerCache = ResyncingPlayer(playerChannel)
     private val listeners = CopyOnWriteArraySet<ConnectionListener>()
     private val callbackScope = CoroutineScope(Dispatchers.Main.immediate)
     private val deathRecipient = IBinder.DeathRecipient { disconnect(DisconnectReason.REMOTE) }
@@ -53,14 +53,14 @@ internal class ProviderRemoteEndpoint(
     override var connectionStatus: ConnectionStatus = ConnectionStatus.DISCONNECTED
         set(value) {
             field = value
-            playerProxy.allowSending = value.isConnected()
+            playerChannel.isSendingEnabled = value.isConnected()
         }
 
     override val isActive: Boolean
         get() = remoteService?.asBinder()?.isBinderAlive == true
 
-    /** 绑定中心服务返回的远端服务 Binder。 */
-    override fun bindRemoteService(service: IRemoteService?) {
+    /** 接收中心服务返回的远端服务 Binder。 */
+    override fun onRemoteService(service: IRemoteService?) {
         if (ProviderConstants.DEBUG) Log.d(TAG, "Bind remote service")
         disconnect(DisconnectReason.REPLACE)
 
@@ -82,14 +82,14 @@ internal class ProviderRemoteEndpoint(
         }
 
         remoteService = service
-        playerProxy.bindRemoteService(service.player)
+        playerChannel.attachPlayer(service.player)
         connectionStatus = ConnectionStatus.CONNECTED
         dispatchConnected()
     }
 
     /** 将缓存的播放器状态同步到当前远端播放器。 */
     fun syncPlayer() {
-        playerCache.syncs()
+        playerCache.sync()
     }
 
     /** 遍历当前连接监听器，用于注册超时等外部状态分发。 */
@@ -106,7 +106,7 @@ internal class ProviderRemoteEndpoint(
         }
 
         if (ProviderConstants.DEBUG) Log.d(TAG, "Disconnect: $reason")
-        playerProxy.bindRemoteService(null)
+        playerChannel.attachPlayer(null)
 
         val service = remoteService ?: return
         remoteService = null
@@ -149,6 +149,6 @@ internal class ProviderRemoteEndpoint(
     }
 
     private companion object {
-        private const val TAG = "ProviderRemoteEndpoint"
+        private const val TAG = "CentralConnection"
     }
 }

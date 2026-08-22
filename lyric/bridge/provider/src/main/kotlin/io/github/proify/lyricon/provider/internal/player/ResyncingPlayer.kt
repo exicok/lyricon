@@ -4,22 +4,23 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.provider
+package io.github.proify.lyricon.provider.internal.player
 
 import android.media.session.PlaybackState
 import io.github.proify.lyricon.lyric.model.Song
-import io.github.proify.lyricon.provider.CachedRemotePlayer.PlaybackStateSyncType.Auto
-import io.github.proify.lyricon.provider.CachedRemotePlayer.PlaybackStateSyncType.Manually
+import io.github.proify.lyricon.provider.RemotePlayer
+import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer.PlaybackStateSyncType.Auto
+import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer.PlaybackStateSyncType.Manually
 
 /**
  * [RemotePlayer] 的装饰器实现，支持断线重连后的状态恢复。
  *
  * 内部维护最近一次设置的播放上下文。当远程连接断开时，外部调用仍能更新这些缓存值；
- * 当连接恢复并调用 [syncs] 时，缓存的状态将原子化地同步至远程播放器。
+ * 当连接恢复并调用 [sync] 时，缓存的状态将原子化地同步至远程播放器。
  *
  * @property player 实际的远程播放器实例。
  */
-internal class CachedRemotePlayer(
+internal class ResyncingPlayer(
     val player: RemotePlayer
 ) : RemotePlayer {
 
@@ -55,7 +56,8 @@ internal class CachedRemotePlayer(
 
     /** 最近的罗马音显示配置。 */
     @Volatile
-    var lastDisplayRoma: Boolean? = null
+    var lastDisplayRomaji: Boolean? = null
+        private set
 
     @Volatile
     private var lastLyricType = LastLyricType.NONE
@@ -78,12 +80,12 @@ internal class CachedRemotePlayer(
      * 根据当前缓存的状态同步至 [player]。
      */
     @Synchronized
-    internal fun syncs() {
+    internal fun sync() {
         val interval = lastPositionUpdateInterval
         if (interval >= 0) setPositionUpdateInterval(interval)
 
         lastDisplayTranslation?.let { setDisplayTranslation(it) }
-        lastDisplayRoma?.let { setDisplayRoma(it) }
+        lastDisplayRomaji?.let { setDisplayRomaji(it) }
 
         when (lastLyricType) {
             LastLyricType.SONG -> setSong(lastSong)
@@ -145,9 +147,9 @@ internal class CachedRemotePlayer(
         return player.setDisplayTranslation(isDisplayTranslation)
     }
 
-    override fun setDisplayRoma(isDisplayRoma: Boolean): Boolean {
-        lastDisplayRoma = isDisplayRoma
-        return player.setDisplayRoma(isDisplayRoma)
+    override fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean {
+        lastDisplayRomaji = isDisplayRomaji
+        return player.setDisplayRomaji(isDisplayRomaji)
     }
 
     override fun setPlaybackState(state: PlaybackState?): Boolean {

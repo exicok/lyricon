@@ -4,7 +4,7 @@
  * http://www.apache.org/licenses/LICENSE-2.0
  */
 
-package io.github.proify.lyricon.provider.impl
+package io.github.proify.lyricon.provider.internal.player
 
 import android.media.session.PlaybackState
 import android.os.Build
@@ -14,36 +14,37 @@ import androidx.annotation.RequiresApi
 import io.github.proify.lyricon.lyric.model.Song
 import io.github.proify.lyricon.provider.IRemotePlayer
 import io.github.proify.lyricon.provider.RemotePlayer
-import io.github.proify.lyricon.provider.deflate
-import io.github.proify.lyricon.provider.json
+import io.github.proify.lyricon.provider.internal.wire.deflate
+import io.github.proify.lyricon.provider.internal.wire.json
 import java.nio.ByteBuffer
 
 /**
- * [RemotePlayer] 的 Binder 代理实现。
+ * [RemotePlayer] 的 Binder 通道实现。
  *
  * 普通播放器命令通过 [IRemotePlayer] 发送，播放进度写入共享内存，减少高频 Binder 调用。
  */
 @RequiresApi(Build.VERSION_CODES.O_MR1)
-internal class RemotePlayerProxy : RemotePlayer {
+internal class AidlRemotePlayer : RemotePlayer {
+
     /** 当前连接状态是否允许发送播放器命令。 */
     @Volatile
-    var allowSending: Boolean = false
+    var isSendingEnabled: Boolean = false
 
     private var remotePlayer: IRemotePlayer? = null
-    private var positionMemory: SharedMemory? = null
+    private var positionSharedMemory: SharedMemory? = null
     private var positionBuffer: ByteBuffer? = null
 
     override val isActive: Boolean
         get() = remotePlayer?.asBinder()?.isBinderAlive == true
 
     /** 绑定或清空远端播放器 Binder。 */
-    fun bindRemoteService(player: IRemotePlayer?) {
-        closePositionMemory()
+    fun attachPlayer(player: IRemotePlayer?) {
+        detachPositionMemory()
         remotePlayer = player
-        positionMemory = runCatching { player?.positionMemory }
+        positionSharedMemory = runCatching { player?.positionMemory }
             .onFailure { Log.e(TAG, "Failed to get position memory", it) }
             .getOrNull()
-        positionBuffer = runCatching { positionMemory?.mapReadWrite() }
+        positionBuffer = runCatching { positionSharedMemory?.mapReadWrite() }
             .onFailure { Log.e(TAG, "Failed to map position memory", it) }
             .getOrNull()
     }
@@ -61,7 +62,7 @@ internal class RemotePlayerProxy : RemotePlayer {
     }
 
     override fun setPosition(position: Long): Boolean {
-        if (!allowSending) return false
+        if (!isSendingEnabled) return false
 
         return try {
             positionBuffer?.putLong(0, position.coerceAtLeast(0L))
@@ -84,8 +85,8 @@ internal class RemotePlayerProxy : RemotePlayer {
         setDisplayTranslation(isDisplayTranslation)
     }
 
-    override fun setDisplayRoma(isDisplayRoma: Boolean): Boolean = send {
-        setDisplayRoma(isDisplayRoma)
+    override fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean = send {
+        setDisplayRoma(isDisplayRomaji)
     }
 
     override fun setPlaybackState(state: PlaybackState?): Boolean = send {
@@ -94,7 +95,7 @@ internal class RemotePlayerProxy : RemotePlayer {
 
     private inline fun send(block: IRemotePlayer.() -> Unit): Boolean {
         val player = remotePlayer
-        if (!allowSending || player == null) return false
+        if (!isSendingEnabled || player == null) return false
 
         return try {
             block(player)
@@ -105,13 +106,13 @@ internal class RemotePlayerProxy : RemotePlayer {
         }
     }
 
-    private fun closePositionMemory() {
+    private fun detachPositionMemory() {
         positionBuffer = null
-        positionMemory?.close()
-        positionMemory = null
+        positionSharedMemory?.close()
+        positionSharedMemory = null
     }
 
     private companion object {
-        private const val TAG = "RemotePlayerProxy"
+        private const val TAG = "AidlRemotePlayer"
     }
 }

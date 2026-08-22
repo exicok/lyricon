@@ -91,17 +91,28 @@ interface RemotePlayer {
      *
      * 如果 [RichLyricLine] 中有罗马音信息，则中心服务可显示罗马音内容。
      *
-     * @param isDisplayRoma 是否显示罗马音。
+     * @param isDisplayRomaji 是否显示罗马音。
      * @return 命令是否成功发送。
      */
-    fun setDisplayRoma(isDisplayRoma: Boolean): Boolean
+    fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean
+
+    /**
+     * 设置是否显示罗马音。
+     *
+     * @deprecated 使用 [setDisplayRomaji]。
+     */
+    @Deprecated(
+        message = "Use setDisplayRomaji instead",
+        replaceWith = ReplaceWith("setDisplayRomaji(isDisplayRomaji)")
+    )
+    fun setDisplayRoma(isDisplayRoma: Boolean): Boolean = setDisplayRomaji(isDisplayRoma)
 
     /**
      * 使用 [PlaybackState] 同步播放状态。
      *
      * 中心服务可根据 [PlaybackState.position]、播放速度和更新时间计算实时进度。
      *
-     * @param state 播放状态，传入 `null` 表示停止使用该模式。
+     * @param state 播放状态，传入 null 表示停止使用该模式。
      * @return 命令是否成功发送。
      */
     fun setPlaybackState(state: PlaybackState?): Boolean

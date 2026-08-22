@@ -10,8 +10,9 @@ import android.app.ActivityManager
 import android.app.Application
 import android.content.Context
 import android.os.Build
-import io.github.proify.lyricon.provider.impl.EmptyProvider
-import io.github.proify.lyricon.provider.impl.LyriconProviderImpl
+import io.github.proify.lyricon.provider.internal.EmptyProvider
+import io.github.proify.lyricon.provider.internal.LyriconProviderImpl
+import io.github.proify.lyricon.provider.internal.registration.CentralBootReceiver
 
 /** 创建 [LyriconProvider] 的工厂。 */
 object LyriconFactory {
@@ -83,8 +84,8 @@ object LyriconFactory {
     }
 
     private fun initialize(context: Context) {
-        if (!CentralServiceReceiver.isInitialized) {
-            CentralServiceReceiver.initialize(context)
+        if (!CentralBootReceiver.isInitialized) {
+            CentralBootReceiver.initialize(context)
         }
     }
 
