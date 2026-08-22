@@ -9,152 +9,100 @@ package io.github.proify.lyricon.provider.internal.player
 import android.media.session.PlaybackState
 import io.github.proify.lyricon.lyric.model.Song
 import io.github.proify.lyricon.provider.RemotePlayer
-import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer.PlaybackStateSyncType.Auto
-import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer.PlaybackStateSyncType.Manually
 
 /**
  * [RemotePlayer] 的装饰器实现，支持断线重连后的状态恢复。
  *
- * 内部维护最近一次设置的播放上下文。当远程连接断开时，外部调用仍能更新这些缓存值；
- * 当连接恢复并调用 [sync] 时，缓存的状态将原子化地同步至远程播放器。
+ * 内部维护不可变的 [PlayerSessionSnapshot]。当远程连接断开时，外部调用仍能更新快照；
+ * 当连接恢复并调用 [sync] 时，快照会被整体回放到远端通道。
  *
- * @property player 实际的远程播放器实例。
+ * @property channel 实际的远端播放器通道。
  */
 internal class ResyncingPlayer(
-    val player: RemotePlayer
+    private val channel: RemotePlayer,
 ) : RemotePlayer {
 
-    /** 最近设置的歌曲（发送纯文本后会被清空） */
     @Volatile
-    var lastSong: Song? = null
-        private set
+    private var snapshot: PlayerSessionSnapshot = PlayerSessionSnapshot.EMPTY
 
-    /** 最近的播放状态 */
-    @Volatile
-    var isPlaying: Boolean = false
-        private set
+    private val updateLock = Any()
 
-    /** 最近的播放位置（毫秒） */
-    @Volatile
-    var lastPosition: Long = 0
-        private set
-
-    /** 最近设置的位置更新间隔（毫秒） */
-    @Volatile
-    var lastPositionUpdateInterval: Int = -1
-        private set
-
-    /** 最近发送的文本内容（设置歌曲对象后会被清空） */
-    @Volatile
-    var lastText: String? = null
-        private set
-
-    /** 是否显示翻译内容 */
-    @Volatile
-    var lastDisplayTranslation: Boolean? = null
-        private set
-
-    /** 最近的罗马音显示配置。 */
-    @Volatile
-    var lastDisplayRomaji: Boolean? = null
-        private set
-
-    @Volatile
-    private var lastLyricType = LastLyricType.NONE
-
-    @Volatile
-    private var lastPlaybackState: PlaybackState? = null
-
-    @Volatile
-    private var lastPlaybackStateSyncType = Manually
-
-    private enum class LastLyricType {
-        SONG, TEXT, NONE
-    }
-
-    private enum class PlaybackStateSyncType {
-        Manually, Auto
-    }
-
-    /**
-     * 根据当前缓存的状态同步至 [player]。
-     */
-    @Synchronized
-    internal fun sync() {
-        val interval = lastPositionUpdateInterval
-        if (interval >= 0) setPositionUpdateInterval(interval)
-
-        lastDisplayTranslation?.let { setDisplayTranslation(it) }
-        lastDisplayRomaji?.let { setDisplayRomaji(it) }
-
-        when (lastLyricType) {
-            LastLyricType.SONG -> setSong(lastSong)
-            LastLyricType.TEXT -> sendText(lastText)
-            else -> Unit
-        }
-
-        when (lastPlaybackStateSyncType) {
-            Manually -> {
-                setPlaybackState(isPlaying)
-                seekTo(lastPosition.coerceAtLeast(0))
-            }
-
-            Auto -> {
-                setPlaybackState(lastPlaybackState)
-            }
+    /** 串行化地执行一次快照更新。 */
+    private inline fun commit(transform: (PlayerSessionSnapshot) -> PlayerSessionSnapshot) {
+        synchronized(updateLock) {
+            snapshot = transform(snapshot)
         }
     }
 
-    override val isActive: Boolean get() = player.isActive
+    /** 将当前快照回放到远端通道。 */
+    fun sync() {
+        snapshot.replayTo(channel)
+    }
+
+    override val isActive: Boolean
+        get() = channel.isActive
 
     override fun setSong(song: Song?): Boolean {
-        lastLyricType = LastLyricType.SONG
-        lastSong = song
-        return player.setSong(song)
+        commit { it.copy(lyric = LyricContent.SongPayload(song)) }
+        return channel.setSong(song)
     }
 
     override fun setPlaybackState(playing: Boolean): Boolean {
-        lastPlaybackStateSyncType = Manually
-        isPlaying = playing
-        return player.setPlaybackState(playing)
+        commit { current ->
+            current.copy(
+                playback = PlaybackSync.Manual(
+                    playing = playing,
+                    position = current.playback.position
+                )
+            )
+        }
+        return channel.setPlaybackState(playing)
     }
 
     override fun seekTo(position: Long): Boolean {
-        lastPlaybackStateSyncType = Manually
-        lastPosition = position
-        return player.seekTo(position)
+        commit { current ->
+            current.copy(playback = current.playback.withPosition(position.coerceAtLeast(0L)))
+        }
+        return channel.seekTo(position)
     }
 
     override fun setPosition(position: Long): Boolean {
-        lastPlaybackStateSyncType = Manually
-        lastPosition = position
-        return player.setPosition(position)
+        commit { current ->
+            current.copy(playback = current.playback.withPosition(position.coerceAtLeast(0L)))
+        }
+        return channel.setPosition(position)
     }
 
     override fun setPositionUpdateInterval(interval: Int): Boolean {
-        lastPositionUpdateInterval = interval
-        return player.setPositionUpdateInterval(interval)
+        commit { it.copy(positionUpdateInterval = interval) }
+        return channel.setPositionUpdateInterval(interval)
     }
 
     override fun sendText(text: String?): Boolean {
-        lastLyricType = LastLyricType.TEXT
-        lastText = text
-        return player.sendText(text)
+        commit { it.copy(lyric = LyricContent.TextPayload(text)) }
+        return channel.sendText(text)
     }
 
     override fun setDisplayTranslation(isDisplayTranslation: Boolean): Boolean {
-        lastDisplayTranslation = isDisplayTranslation
-        return player.setDisplayTranslation(isDisplayTranslation)
+        commit { it.copy(displayTranslation = isDisplayTranslation) }
+        return channel.setDisplayTranslation(isDisplayTranslation)
     }
 
     override fun setDisplayRomaji(isDisplayRomaji: Boolean): Boolean {
-        lastDisplayRomaji = isDisplayRomaji
-        return player.setDisplayRomaji(isDisplayRomaji)
+        commit { it.copy(displayRomaji = isDisplayRomaji) }
+        return channel.setDisplayRomaji(isDisplayRomaji)
     }
 
     override fun setPlaybackState(state: PlaybackState?): Boolean {
-        lastPlaybackStateSyncType = Auto
-        lastPlaybackState = state
-        return player.setPlaybackState(state)
+        commit { current ->
+            current.copy(
+                playback = PlaybackSync.PlaybackStateDriven(
+                    state = state,
+                    playing = current.playback.playing,
+                    position = current.playback.position
+                )
+            )
+        }
+        return channel.setPlaybackState(state)
     }
 }
