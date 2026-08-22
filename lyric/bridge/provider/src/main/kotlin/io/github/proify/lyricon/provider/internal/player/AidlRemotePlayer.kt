@@ -44,9 +44,15 @@ internal class AidlRemotePlayer : RemotePlayer {
         positionSharedMemory = runCatching { player?.positionMemory }
             .onFailure { Log.e(TAG, "Failed to get position memory", it) }
             .getOrNull()
-        positionBuffer = runCatching { positionSharedMemory?.mapReadWrite() }
-            .onFailure { Log.e(TAG, "Failed to map position memory", it) }
-            .getOrNull()
+        positionBuffer = try {
+            positionSharedMemory?.mapReadWrite()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to map position memory", e)
+            // 映射失败时立即关闭已取得的共享内存，避免泄漏。
+            positionSharedMemory?.close()
+            positionSharedMemory = null
+            null
+        }
     }
 
     override fun setSong(song: Song?): Boolean = send {

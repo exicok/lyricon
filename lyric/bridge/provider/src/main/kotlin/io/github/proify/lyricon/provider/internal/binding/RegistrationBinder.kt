@@ -20,7 +20,7 @@ import io.github.proify.lyricon.provider.internal.wire.json
  * 该桩负责向中心服务提供注册信息与本地命令 Binder，并接收中心服务返回的远端服务 Binder。
  *
  * 每次注册广播对应一次 [RegistrationAttempt]；尝试被取消（用户断开、销毁或超时）后，
- * 迟到的注册回调将被忽略，不会建立连接。
+ * 迟到的注册回调将被忽略，不会建立连接。回调的消费在锁内完成，保证至多一次。
  */
 internal class RegistrationBinder(
     providerInfo: ProviderInfo,
@@ -37,16 +37,26 @@ internal class RegistrationBinder(
 
     /** 进入等待中心服务回调的状态。 */
     fun beginAttempt(attempt: RegistrationAttempt) {
-        pendingAttempt = attempt
+        synchronized(this) {
+            pendingAttempt = attempt
+        }
     }
 
     /** 结束等待：仅在 [attempt] 仍为当前尝试时清除。 */
     fun endAttempt(attempt: RegistrationAttempt) {
-        if (pendingAttempt === attempt) pendingAttempt = null
+        synchronized(this) {
+            if (pendingAttempt === attempt) pendingAttempt = null
+        }
     }
 
     override fun onRegistrationCallback(remoteProviderService: IRemoteService?) {
-        val attempt = pendingAttempt ?: run {
+        // 原子地消费本次尝试：迟到回调（尝试已被取消）或重复回调（已被消费）
+        // 在这里被拦截，不再触碰连接端点。
+        val attempt = synchronized(this) {
+            val current = pendingAttempt
+            pendingAttempt = null
+            current
+        } ?: run {
             Log.w(TAG, "Ignoring registration callback (attempt was cancelled)")
             return
         }

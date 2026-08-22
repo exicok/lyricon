@@ -20,7 +20,6 @@ import io.github.proify.lyricon.provider.RemotePlayer
 import io.github.proify.lyricon.provider.internal.player.AidlRemotePlayer
 import io.github.proify.lyricon.provider.internal.player.ResyncingPlayer
 import io.github.proify.lyricon.provider.isConnected
-import io.github.proify.lyricon.provider.isDisconnected
 import io.github.proify.lyricon.provider.service.RemoteService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,12 +58,14 @@ internal class CentralConnection(
     override val connectionStatus: ConnectionStatus
         get() = machine.status
 
-    /** 是否可以发起注册：当前未连接且未在连接中。 */
-    fun canRegister(): Boolean = machine.status.isDisconnected()
-
-    /** 标记为正在连接（注册广播发出前调用）。 */
-    fun beginRegistration() {
-        transition(ConnectionTrigger.REGISTER)
+    /**
+     * 尝试进入连接状态；返回是否真正启动了一次注册。
+     *
+     * 状态机是权威判定：已在连接中或已连接时返回 false，调用方必须据此放弃
+     * 发送注册广播，避免破坏现有连接。
+     */
+    fun beginRegistration(): Boolean {
+        return transition(ConnectionTrigger.REGISTER).status == ConnectionStatus.CONNECTING
     }
 
     /** 注册等待超时。 */
@@ -98,6 +99,13 @@ internal class CentralConnection(
             binder.linkToDeath(deathRecipient, 0)
         } catch (e: RemoteException) {
             Log.e(TAG, "Failed to link death recipient", e)
+            return
+        }
+
+        // linkToDeath 与赋值之间远端可能恰好死亡：此时放弃连接，
+        // 避免绑定一个已死的 Binder 却对外宣称连接成功。
+        if (!binder.isBinderAlive) {
+            Log.w(TAG, "Remote binder died during registration")
             return
         }
 
