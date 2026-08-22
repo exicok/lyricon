@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -59,9 +60,17 @@ internal class PlayerCommandStub(
     @Volatile
     private var positionUpdateInterval: Long = ProviderConstants.DEFAULT_POSITION_UPDATE_INTERVAL
 
+    /** 待解码的歌曲队列：保证 setSong 按到达顺序处理，避免并发解码乱序。 */
+    private val songQueue = Channel<ByteArray?>(Channel.UNLIMITED)
+
     init {
         positionTracker.manualPositionReader = positionMemory::readPosition
         ScreenStateMonitor.addListener(this)
+        scope.launch {
+            for (bytes in songQueue) {
+                processSong(bytes)
+            }
+        }
     }
 
     /** 关闭命令桩：停止轮询、释放共享内存与协程作用域。 */
@@ -70,6 +79,7 @@ internal class PlayerCommandStub(
         ScreenStateMonitor.removeListener(this)
         stopPositionUpdate()
 
+        songQueue.cancel()
         scope.launch {
             closeMutex.withLock {
                 positionMemory.close()
@@ -101,26 +111,11 @@ internal class PlayerCommandStub(
         }
     }
 
-    @OptIn(ExperimentalSerializationApi::class)
     override fun setSong(bytes: ByteArray?) {
         if (closed.get()) return
 
-        scope.launch {
-            val song = bytes?.let {
-                runCatching {
-                    it.inflate()
-                        .inputStream()
-                        .buffered()
-                        .use { stream ->
-                            json.decodeFromStream(Song.serializer(), stream)
-                        }
-                }.getOrNull()
-            }
-
-            val normalized = song?.normalize()
-            session.song = normalized
-            playerEvents.safeNotify { onSongChanged(session, normalized) }
-        }
+        // 入队顺序与调用顺序一致；解码在单消费者中按序完成。
+        songQueue.trySend(bytes)
     }
 
     override fun setPlaybackState(isPlaying: Boolean) {
@@ -198,6 +193,25 @@ internal class PlayerCommandStub(
     override fun getPositionMemory(): SharedMemory? = positionMemory.sharedMemory
 
     /** 开始位置轮询（灭屏时忽略）。 */
+    /** 解码并应用一首歌曲（由歌曲队列的消费者按序调用）。 */
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun processSong(bytes: ByteArray?) {
+        val song = bytes?.let {
+            runCatching {
+                it.inflate()
+                    .inputStream()
+                    .buffered()
+                    .use { stream ->
+                        json.decodeFromStream(Song.serializer(), stream)
+                    }
+            }.getOrNull()
+        }
+
+        val normalized = song?.normalize()
+        session.song = normalized
+        playerEvents.safeNotify { onSongChanged(session, normalized) }
+    }
+
     private fun startPositionUpdate() {
         if (closed.get()) return
         if (ScreenStateMonitor.state == ScreenStateMonitor.ScreenState.OFF) return
