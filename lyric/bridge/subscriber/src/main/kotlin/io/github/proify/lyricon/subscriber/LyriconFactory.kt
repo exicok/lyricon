@@ -44,6 +44,7 @@ object LyriconFactory {
         }
     }
 
+    /** 读取当前进程名；Android 9 以下回退到 ActivityManager 遍历。 */
     private fun getCurrentProcessName(context: Context): String? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             Application.getProcessName()

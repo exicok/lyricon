@@ -85,6 +85,7 @@ internal class LyriconSubscriberImpl(
         listeners.clear()
     }
 
+    /** 注册成功：标记连接、绑定远端服务并通知监听器（区分首次与重连）。 */
     private fun onRegistered(service: IRemoteService?, reconnect: Boolean) {
         registration.markConnected()
         remote.bind(service)
@@ -93,6 +94,13 @@ internal class LyriconSubscriberImpl(
         }
     }
 
+    /**
+     * 断开连接并通知监听器。
+     *
+     * @param remote 是否为远端导致的断开。
+     * @param notifyRemote 是否调用远端 disconnect 接口。
+     * @param destroy 是否彻底销毁连接端点。
+     */
     private fun disconnect(
         remote: Boolean,
         notifyRemote: Boolean = true,
@@ -189,16 +197,19 @@ internal class LyriconSubscriberImpl(
             abortAttempt()
         }
 
+        /** 销毁：结束尝试并停止监听中心启动广播。 */
         fun close() {
             cancel()
             CentralBootReceiver.removeBootListener(this)
         }
 
+        /** 取消注册超时等待。 */
         private fun cancelTimeout() {
             timeoutJob?.cancel()
             timeoutJob = null
         }
 
+        /** 发送注册广播并启动超时等待。 */
         private fun send() {
             if (destroyed.get()) return
             status = SubscriberStatus.CONNECTING
@@ -215,6 +226,7 @@ internal class LyriconSubscriberImpl(
             scheduleTimeout()
         }
 
+        /** 启动注册超时等待；超时后按次数重发广播，耗尽则报告超时。 */
         private fun scheduleTimeout() {
             cancelTimeout()
             timeoutJob = scope.launch {
