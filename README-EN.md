@@ -1,13 +1,7 @@
 <!--suppress ALL -->
 
 <p align="center">
-  <img src="resources/logo.svg" width="120" alt="Lyricon Logo"/>
-</p>
-
-<h1 align="center">Lyricon</h1>
-
-<p align="center">
-  <b>System status bar lyrics extension</b>
+  <img src="resources/banner-en.svg" alt="Lyricon" width="100%"/>
 </p>
 
 <p align="center">
@@ -20,14 +14,11 @@
 </p>
 
 <p align="center">
-  <a href="README.md">中文</a> ·
-  <a href="https://github.com/tomakino/lyricon">GitHub</a>
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/github/v/release/tomakino/lyricon?style=flat-square&color=3582ff" alt="Release"/>
-  <img src="https://img.shields.io/github/downloads/tomakino/lyricon/total?style=flat-square&color=38bdf8" alt="Downloads"/>
+  <img src="https://img.shields.io/github/stars/tomakino/lyricon?style=flat-square&color=3582ff" alt="Stars"/>
+  <img src="https://img.shields.io/github/v/release/tomakino/lyricon?style=flat-square&color=38bdf8" alt="Release"/>
+  <img src="https://img.shields.io/github/downloads/tomakino/lyricon/total?style=flat-square&color=6366f1" alt="Downloads"/>
   <img src="https://img.shields.io/github/license/tomakino/lyricon?style=flat-square&color=64748b" alt="License"/>
+  <a href="README.md"><img src="https://img.shields.io/badge/中文-64748b?style=flat-square" alt="中文"/></a>
 </p>
 
 <p align="center">
@@ -91,16 +82,6 @@ Missing your player? [Open an issue](https://github.com/tomakino/lyricon/issues)
 ## Credits
 
 [![Contributors](https://contrib.rocks/image?repo=tomakino/lyricon)](https://github.com/tomakino/lyricon/graphs/contributors)
-
-<p align="center">
-  <a href="https://www.star-history.com/#tomakino/lyricon&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tomakino/lyricon&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tomakino/lyricon&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tomakino/lyricon&type=Date" width="600" />
-    </picture>
-  </a>
-</p>
 
 ---
 
