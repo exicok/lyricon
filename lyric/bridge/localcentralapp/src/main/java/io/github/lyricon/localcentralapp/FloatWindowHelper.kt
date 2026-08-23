@@ -39,14 +39,12 @@ class FloatWindowHelper(private val context: Context) {
             }
         }
 
-        setStyle(getStyle().apply {
-            val font = Typeface.create(Typeface.DEFAULT, 600, false)
-            primary.apply {
-                typeface = font
-            }
-            secondary.apply {
-                typeface = font
-            }
+        val font = Typeface.create(Typeface.DEFAULT, 600, false)
+        setStyle(getStyle().let { style ->
+            style.copy(
+                primary = style.primary.copy(typeface = font),
+                secondary = style.secondary.copy(typeface = font),
+            )
         })
     }
 
